@@ -1,0 +1,22 @@
+pub mod store;
+pub mod embeddings;
+pub mod memory;
+pub mod attention;
+pub mod router;
+pub mod acp;
+pub mod errors;
+pub mod learn;
+pub mod federated;
+pub mod orchestrator;
+pub mod observability;
+pub mod export;
+pub mod rs_search_bridge;
+
+pub use acp::AcpClient;
+pub use attention::Attention;
+pub use embeddings::Embedder;
+pub use errors::{LlmError, Result};
+pub use memory::Memory;
+pub use orchestrator::{Orchestrator, QueryResult};
+pub use router::{Route, Router};
+pub use store::Store;

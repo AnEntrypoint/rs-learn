@@ -1,0 +1,32 @@
+name: Fetch rs-search binaries
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download latest rs-search release binaries
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p bin
+          REPO=AnEntrypoint/rs-search
+          gh release download --repo "$REPO" --pattern '*linux*' --dir bin/ || true
+          gh release download --repo "$REPO" --pattern '*darwin*' --dir bin/ || true
+          gh release download --repo "$REPO" --pattern '*windows*' --dir bin/ || true
+          ls -la bin/
+      - name: Commit if binaries changed
+        run: |
+          git config user.name "rs-learn-bot"
+          git config user.email "bot@rs-learn.dev"
+          git add bin/
+          git diff --staged --quiet || git commit -m "chore(bin): sync rs-search binaries"
+          git push || true
