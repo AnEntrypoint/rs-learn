@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <rect width="1200" height="630" fill="#EFE9DD"/>
+  <g font-family="ui-monospace, Menlo, Consolas, monospace" fill="#0B0B09">
+    <rect x="48" y="48" width="1104" height="1" fill="#0B0B09"/>
+    <text x="48" y="92" font-size="13" letter-spacing="1.6">247420  //  AN ENTRYPOINT  //  RS-LEARN  //  2026.04.21  //  · LIVE</text>
+    <rect x="48" y="108" width="1104" height="1" fill="#0B0B09"/>
+  </g>
+  <g font-family="Georgia, 'Times New Roman', serif" fill="#0B0B09">
+    <text x="48" y="320" font-size="200" font-style="italic" letter-spacing="-6">rs-learn</text>
+    <text x="48" y="400" font-size="36" font-style="italic">continual learning. three clocks. one binary.</text>
+  </g>
+  <g font-family="ui-monospace, Menlo, Consolas, monospace" fill="#0B0B09">
+    <text x="48" y="465" font-size="14" letter-spacing="1.6">// PURE RUST · ACP WRAPPER · PERSISTENT MEMORY · ADAPTIVE ROUTING</text>
+  </g>
+  <g transform="translate(900 500) rotate(-2)">
+    <rect x="0" y="0" width="200" height="64" fill="#EFE9DD" stroke="#0B0B09" stroke-width="1"/>
+    <rect x="4" y="4" width="200" height="64" fill="#0B0B09"/>
+    <rect x="0" y="0" width="200" height="64" fill="#EFE9DD" stroke="#0B0B09" stroke-width="1"/>
+    <text x="100" y="40" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="14" text-anchor="middle" letter-spacing="3" fill="#0B0B09">PROBABLY EMERGING</text>
+  </g>
+  <g font-family="ui-monospace, Menlo, Consolas, monospace" fill="#0B0B09" opacity="0.65">
+    <rect x="48" y="560" width="1104" height="1" fill="#0B0B09"/>
+    <text x="48" y="592" font-size="12" letter-spacing="1.6">GITHUB.COM/ANENTRYPOINT/RS-LEARN  //  PROBABLY EMERGING  //  BUILT IN PUBLIC</text>
+  </g>
+</svg>

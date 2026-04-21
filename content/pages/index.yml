@@ -1,0 +1,137 @@
+slug: index
+project:
+  title: rs-learn
+  tag: "// pure rust · continual learning · acp wrapper"
+  lede: "a continual-learning orchestrator that wraps any agent client protocol stdio agent. gives a stateless agent persistent memory, adaptive routing, and three background learning loops that compress trajectories into reusable strategies and exportable training artefacts. single binary. no node. no npm. probably emerging."
+  stamp: "probably emerging"
+pipeline:
+  label: "pipeline // request"
+  title: "one turn, start to finish."
+  intro: "each user query flows through a fixed five-stage pipeline. every stage is a named subsystem, every subsystem is individually inspectable at runtime, every transition is witnessed."
+  stages:
+    - phase: "recall"
+      name: "memory"
+      hint: "libsql vector + graph + fts5. hnsw-equivalent ann lookup over past episodes, entities, mentions."
+    - phase: "attend"
+      name: "attention"
+      hint: "8-head graph attention with edge features: relation one-hot, recency decay, edge weight. produces a weighted subgraph context."
+    - phase: "route"
+      name: "router"
+      hint: "fastgrnn gate with 90% sparsity + rank-8 low-rank factor. softmax over acp targets + context bucket + temperature + top-p + confidence."
+    - phase: "act"
+      name: "acp agent"
+      hint: "forwards to the chosen stdio agent. opencode, kilo, claude-cli, gemini-cli, codex — anything that speaks acp."
+    - phase: "learn"
+      name: "instant loop"
+      hint: "trajectory capture into reasoning bank. rank-2 microlora hebbian adapter applied in-place. feedback closes the loop."
+loops:
+  label: "learning // three loops"
+  title: "continual learning, three clocks."
+  intro: "learning is split across three cadences. each resolves a different tension between speed and stability. the deep loop uses elastic weight consolidation with online fisher information (ema decay 0.999) so old skills survive new ones."
+  items:
+    - badge: "01 · instant"
+      name: "per-request"
+      freq: "every turn"
+      method: "hebbian · rank-2 microlora"
+      body: "captures the trajectory. stamps a rank-2 hebbian adapter over the router the moment feedback arrives. cheap, reversible, local."
+    - badge: "02 · background"
+      name: "hourly"
+      freq: "every 60 min"
+      method: "kmeans++ · baselora · acp summary"
+      body: "k-means++ over recent trajectories extracts patterns. retrains a base-lora on the router. summarizes reasoning into the bank. exports reusable strategies."
+    - badge: "03 · deep"
+      name: "weekly"
+      freq: "every 7 days"
+      method: "ewc++ · online fisher · λ=2000"
+      body: "elastic weight consolidation with online fisher information and ema decay 0.999. boundary detection from loss-delta triggers consolidation. old skills survive new ones."
+layers:
+  label: "layers // what's inside"
+  title: "seven layers, one binary."
+  intro: "the orchestrator is assembled from small, inspectable subsystems. each one registers itself with the debug server on construction. nothing is hidden behind a process boundary."
+  items:
+    - code: "store"
+      title: "libsql · vector + graph + fts5"
+      meta: "single file · zero services"
+    - code: "memory"
+      title: "hnsw-equivalent ann · m=32 level sampling"
+      meta: "libsql vector_top_k"
+    - code: "attn"
+      title: "8-head graph attention · edge features"
+      meta: "relation · recency · weight"
+    - code: "router"
+      title: "fastgrnn · 90% sparse · rank-8 low-rank"
+      meta: "softmax over acp targets"
+    - code: "bank"
+      title: "reasoning bank · acp-summarized"
+      meta: "pattern store · dpo source"
+    - code: "fed"
+      title: "federated · ephemeral + coordinator"
+      meta: "50k quality-filtered pool"
+    - code: "export"
+      title: "safetensors · patterns.jsonl · dpo"
+      meta: "huggingface push"
+debug:
+  label: "observability // live"
+  title: "every subsystem, queryable."
+  intro: "the http debug server binds on 127.0.0.1:7878 at startup. every subsystem — store, memory, router, attention, instant/bg/deep loops, reasoning-bank, federated, acp, orchestrator, rs-search — registers an endpoint. no restart required to inspect state."
+  ascii: |
+    ┌──────────── rs-learn // 127.0.0.1:7878 ────────────┐
+    │                                                    │
+    │  /debug              →  registry of subsystems     │
+    │  /debug/store        →  table counts, vec index    │
+    │  /debug/memory       →  episodes, entities, edges  │
+    │  /debug/router       →  weights, version, trained  │
+    │  /debug/attention    →  head stats, subgraph size  │
+    │  /debug/learn-bg     →  k-means status, last run   │
+    │  /debug/learn-deep   →  fisher ema, boundaries     │
+    │  /debug/reasoning    →  bank size, last summary    │
+    │  /debug/federated    →  pool size, quality dist    │
+    │  /debug/acp          →  live agent pid, rx/tx      │
+    │  /debug/rs-search    →  embedding calls, hit rate  │
+    │                                                    │
+    └────────────────────────────────────────────────────┘
+  curls:
+    - "curl http://127.0.0.1:7878/debug"
+    - "curl http://127.0.0.1:7878/debug/router"
+    - "curl http://127.0.0.1:7878/debug/learn-deep"
+numbers:
+  label: "numbers // receipts"
+  title: "by the count."
+  stats:
+    - value: "1"
+      label: "single binary"
+    - value: "6"
+      label: "ci targets // native"
+    - value: "8"
+      label: "attention heads"
+    - value: "3"
+      label: "learning loops"
+    - value: "90%"
+      label: "router sparsity"
+    - value: "0.999"
+      label: "fisher ema decay"
+    - value: "50k"
+      label: "federated pool"
+    - value: "2000"
+      label: "ewc λ default"
+ci:
+  label: "ci // matrix"
+  title: "six targets. all native. all green."
+  intro: "cargo build + test across six native targets on every push. no cross compilation shenanigans. aarch64 linux and windows run pure-rust fallbacks where simsimd wasn't available."
+  targets:
+    - name: "x86_64-linux"
+      status: "green"
+    - name: "x86_64-windows"
+      status: "green"
+    - name: "x86_64-macos"
+      status: "green"
+    - name: "aarch64-macos"
+      status: "green"
+    - name: "aarch64-linux"
+      status: "green"
+    - name: "aarch64-windows"
+      status: "green"
+quote:
+  label: "footnote"
+  title: "// why."
+  text: "stateless agents forget. rs-learn remembers — episodes, entities, relations, preferences, failures. then it learns from what it remembers. three clocks, one store, one binary. pure rust. we were here first."

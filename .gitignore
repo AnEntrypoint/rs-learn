@@ -38,3 +38,4 @@ bin/*.exe
 .ci-*.log
 CLAUDE.md
 .rustup.log
+docs/data/
