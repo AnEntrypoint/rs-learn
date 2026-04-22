@@ -1,0 +1,18 @@
+{
+  "name": "rs-learn-cc",
+  "owner": {
+    "name": "AnEntrypoint"
+  },
+  "metadata": {
+    "description": "Continual-learning memory + adaptive routing over any ACP stdio agent",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "rs-learn",
+      "source": "./",
+      "description": "rs-learn continual-learning orchestrator as a Claude Code plugin",
+      "version": "0.1.0"
+    }
+  ]
+}

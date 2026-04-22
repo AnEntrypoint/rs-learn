@@ -123,3 +123,24 @@ Integration suite lives in `tests/integration.rs` and exercises the full pipelin
 ## License
 
 MIT
+
+## Claude Code plugin
+
+This repo is also a Claude Code plugin. Load directly:
+
+```bash
+claude --plugin-dir /path/to/rs-learn -p "your prompt"
+```
+
+Or via marketplace:
+
+```bash
+claude plugin marketplace add AnEntrypoint/rs-learn
+claude plugin install rs-learn@rs-learn
+```
+
+Provides:
+- **Skill**: `rs-learn` — continual-learning orchestrator guidance (skills/rs-learn/)
+- **Commands**: `/rs-learn-status`, `/rs-learn-query`, `/rs-learn-feedback`
+
+Requires the `rs-learn` binary on PATH (`cargo install rs-learn` or built from this repo) and `RS_LEARN_ACP_COMMAND` pointing to an ACP stdio agent.

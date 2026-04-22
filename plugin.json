@@ -1,0 +1,12 @@
+{
+  "name": "rs-learn",
+  "version": "0.1.0",
+  "description": "Continual-learning orchestrator: libsql memory, HNSW retrieval, graph attention, FastGRNN routing",
+  "author": {
+    "name": "AnEntrypoint",
+    "url": "https://github.com/AnEntrypoint"
+  },
+  "homepage": "https://github.com/AnEntrypoint/rs-learn",
+  "skills": "./skills",
+  "commands": "./commands"
+}
