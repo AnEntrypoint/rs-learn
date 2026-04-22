@@ -1,8 +1,13 @@
 name: release
 
 on:
-  push:
-    tags: ['v*']
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to build
+        required: true
 
 permissions:
   contents: write
@@ -41,6 +46,8 @@ jobs:
             ext: ''
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Install Rust
         shell: bash
@@ -71,24 +78,6 @@ jobs:
       - name: Upload to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag }}
         shell: bash
-        run: gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
-
-  publish-crate:
-    name: cargo publish
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Rust
-        run: rustup toolchain install stable --profile minimal
-      - name: Publish (optional, gated on secret)
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        shell: bash
-        run: |
-          if [[ -n "${CARGO_REGISTRY_TOKEN}" ]]; then
-            cargo publish --token "${CARGO_REGISTRY_TOKEN}" --allow-dirty
-          else
-            echo "CARGO_REGISTRY_TOKEN not set; skipping crates.io publish"
-          fi
+        run: gh release upload "${TAG:-$GITHUB_REF_NAME}" dist/* --clobber

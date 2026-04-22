@@ -81,6 +81,25 @@ jobs:
           git tag -a "v${{ steps.ver.outputs.next }}" -m "v${{ steps.ver.outputs.next }}"
           git push origin "v${{ steps.ver.outputs.next }}"
 
+      - name: Create GitHub release
+        if: steps.tag.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release create "v${{ steps.ver.outputs.next }}" \
+            --title "v${{ steps.ver.outputs.next }}" \
+            --notes "Automated release for v${{ steps.ver.outputs.next }}" \
+            --target main
+
+      - name: Trigger release binary build
+        if: steps.tag.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh workflow run release.yml -f tag="v${{ steps.ver.outputs.next }}"
+
       - name: Publish to crates.io
         if: steps.tag.outputs.exists == 'false'
         continue-on-error: true
