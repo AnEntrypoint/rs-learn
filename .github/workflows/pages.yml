@@ -24,13 +24,12 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Aggregate content with flatspace
+      - name: Convert content YAML to JSON
         run: |
-          mkdir -p docs/data content/pages-json
+          mkdir -p docs/data
           for f in content/pages/*.yml; do
             name=$(basename "$f" .yml)
-            yq -o=json eval "$f" > "content/pages-json/${name}.json"
-            npx --yes flatspace aggregate --input "content/pages-json/${name}.json" --output "docs/data/${name}.json"
+            yq -o=json eval "$f" > "docs/data/${name}.json"
           done
 
       - uses: actions/configure-pages@v5
