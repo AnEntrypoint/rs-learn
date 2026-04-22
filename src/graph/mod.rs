@@ -7,3 +7,4 @@ pub mod search;
 pub mod recipes;
 pub mod communities;
 pub mod sagas;
+pub mod http;
