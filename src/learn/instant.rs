@@ -42,6 +42,7 @@ pub struct InstantLoop {
     pub adapter_a: Vec<f32>,
     pub adapter_b: Vec<f32>,
     pub pending: HashMap<RequestId, PendingInfo>,
+    pub spine: Option<Arc<crate::spine::TrajectorySpine>>,
     targets: Vec<String>,
     n_targets: usize,
     lr: f32,
@@ -60,6 +61,7 @@ impl InstantLoop {
             adapter_a: vec![0f32; IN * RANK],
             adapter_b: vec![0f32; RANK * n_targets],
             pending: HashMap::new(),
+            spine: None,
             targets, n_targets, lr: LR0,
             feedback_count: Arc::new(AtomicU64::new(0)),
         };
@@ -95,9 +97,8 @@ impl InstantLoop {
         if embedding.len() != IN || logits.len() != self.n_targets { return; }
         let mut proj = [0f32; RANK];
         for r in 0..RANK {
-            let off = r * IN; let mut s = 0f32;
-            for i in 0..IN { s += self.adapter_a[off + i] * embedding[i]; }
-            proj[r] = s;
+            let off = r * IN;
+            proj[r] = crate::simd::dot(&self.adapter_a[off..off + IN], embedding);
         }
         for k in 0..self.n_targets {
             let mut s = 0f32;
@@ -127,11 +128,11 @@ impl InstantLoop {
             let off = r * IN;
             let mut b_val = self.adapter_b[r * self.n_targets + t_idx];
             if b_val == 0.0 { b_val = fallback; }
-            for i in 0..IN { self.adapter_a[off + i] += scale * embedding[i] * b_val; }
+            crate::simd::axpy(scale * b_val, embedding, &mut self.adapter_a[off..off + IN]);
         }
         for r in 0..RANK {
-            let off = r * IN; let mut pr = 0f32;
-            for i in 0..IN { pr += self.adapter_a[off + i] * embedding[i]; }
+            let off = r * IN;
+            let pr = crate::simd::dot(&self.adapter_a[off..off + IN], embedding);
             self.adapter_b[r * self.n_targets + t_idx] += scale * pr;
         }
         self.lr *= DECAY;
@@ -148,7 +149,7 @@ impl InstantLoop {
         let request_id = Uuid::new_v4().to_string();
         let created_ms = now_ms();
         let decision = json!({ "model": route_model.clone() }).to_string();
-        self.store.insert_trajectory(&TrajectoryRow {
+        let row = TrajectoryRow {
             id: request_id.clone(),
             session_id: session_id.clone(),
             query: None,
@@ -160,7 +161,11 @@ impl InstantLoop {
             quality: None,
             latency_ms: Some(0),
             created_at: Some(created_ms),
-        }).await?;
+        };
+        match self.spine.as_ref() {
+            Some(s) => s.send(row).await?,
+            None => self.store.insert_trajectory(&row).await?,
+        }
         self.pending.insert(request_id.clone(), PendingInfo {
             session_id, embedding, route_model,
             created_at: Instant::now(), created_ms,
@@ -177,7 +182,7 @@ impl InstantLoop {
             None => (vec![0f32; IN], None, String::new(), now_ms()),
         };
         let decision = json!({ "model": model.clone(), "signal": payload.signal }).to_string();
-        self.store.insert_trajectory(&TrajectoryRow {
+        let row = TrajectoryRow {
             id: request_id.to_string(),
             session_id: sid,
             query: None,
@@ -189,7 +194,11 @@ impl InstantLoop {
             quality: Some(payload.quality as f64),
             latency_ms: Some(0),
             created_at: Some(cms),
-        }).await?;
+        };
+        match self.spine.as_ref() {
+            Some(s) => s.send(row).await?,
+            None => self.store.insert_trajectory(&row).await?,
+        }
         self.feedback_count.fetch_add(1, Ordering::Relaxed);
         if payload.quality > 0.7 {
             if let Some(idx) = self.target_index(&model) {

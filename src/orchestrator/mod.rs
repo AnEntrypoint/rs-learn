@@ -4,6 +4,7 @@ pub use types::{QueryOpts, QueryResult, RouteSnapshot, Session};
 
 use crate::backend::{self, AgentBackend};
 use crate::attention::Attention;
+use crate::cache::EmbeddingCache;
 use crate::embeddings::Embedder;
 use crate::learn::instant::{FeedbackPayload, InstantLoop};
 use crate::learn::reasoning_bank::ReasoningBank;
@@ -11,6 +12,7 @@ use crate::memory::Memory;
 use crate::observability;
 use crate::router::{RouteCtx, Router};
 use crate::rs_search_bridge::RsSearch;
+use crate::spine::TrajectorySpine;
 use crate::store::Store;
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
@@ -33,6 +35,8 @@ pub struct Orchestrator {
     pub sessions: Arc<RwLock<HashMap<String, Session>>>,
     pub store: Arc<Store>,
     pub search_root: PathBuf,
+    pub embed_cache: Option<Arc<EmbeddingCache>>,
+    pub spine: Option<Arc<TrajectorySpine>>,
     queries: Arc<AtomicU64>,
     total_ms: Arc<AtomicU64>,
 }
@@ -54,6 +58,16 @@ impl Orchestrator {
         let rs_search = if std::env::var("RS_LEARN_CODE_SEARCH").is_ok() { Some(Arc::new(RsSearch::new())) } else { None };
         let search_root: PathBuf = std::env::var("RS_LEARN_SEARCH_ROOT").map(PathBuf::from)
             .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+        let embed_cache = if std::env::var("RS_LEARN_EMBED_CACHE").ok().as_deref() == Some("1") {
+            Some(EmbeddingCache::new(embedder.clone(), 10_000, std::time::Duration::from_secs(3600)))
+        } else { None };
+        let spine = if std::env::var("RS_LEARN_ASYNC_TRAJECTORY").ok().as_deref() == Some("1") {
+            Some(TrajectorySpine::new(store.clone(), crate::spine::DEFAULT_CAPACITY))
+        } else { None };
+        if let Some(s) = spine.as_ref() {
+            let mut il = instant.lock().await;
+            il.spine = Some(s.clone());
+        }
         let queries = Arc::new(AtomicU64::new(0));
         let total_ms = Arc::new(AtomicU64::new(0));
         let q2 = queries.clone(); let t2 = total_ms.clone();
@@ -70,7 +84,7 @@ impl Orchestrator {
         Ok(Self {
             embedder, memory, attention, router, instant, reasoning, acp, rs_search,
             sessions: Arc::new(RwLock::new(HashMap::new())),
-            store, search_root, queries, total_ms,
+            store, search_root, embed_cache, spine, queries, total_ms,
         })
     }
 
@@ -90,7 +104,10 @@ impl Orchestrator {
         let sid = self.session(opts.session_id.clone()).await;
 
         let t_e = Instant::now();
-        let emb = self.embedder.embed(text)?;
+        let emb = match self.embed_cache.as_ref() {
+            Some(c) => c.embed(text).await?,
+            None => self.embedder.embed(text)?,
+        };
         stages.insert("embed".into(), t_e.elapsed().as_millis() as u64);
 
         let k = if opts.max_retrieved == 0 { 8 } else { opts.max_retrieved };

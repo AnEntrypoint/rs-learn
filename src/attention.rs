@@ -76,20 +76,7 @@ fn rand_matrix(rows: usize, cols: usize, rng: &mut impl FnMut() -> f32, scale: f
     m
 }
 
-#[inline]
-fn dot(a: &[f32], b: &[f32]) -> f32 {
-    let n = a.len().min(b.len());
-    let mut s = 0.0f32;
-    for i in 0..n { s += a[i] * b[i]; }
-    s
-}
-
-fn matvec(w: &[f32], rows: usize, cols: usize, x: &[f32], out: &mut [f32]) {
-    for r in 0..rows {
-        let base = r * cols;
-        out[r] = dot(&w[base..base + cols], x);
-    }
-}
+use crate::simd::{dot, matvec};
 
 fn layer_norm(x: &[f32]) -> Vec<f32> {
     let n = x.len() as f32;

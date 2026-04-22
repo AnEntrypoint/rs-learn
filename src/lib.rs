@@ -13,6 +13,9 @@ pub mod observability;
 pub mod export;
 pub mod rs_search_bridge;
 pub mod graph;
+pub mod simd;
+pub mod cache;
+pub mod spine;
 
 pub use acp::AcpClient;
 pub use backend::{AgentBackend, ClaudeCliClient};

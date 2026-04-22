@@ -40,6 +40,8 @@ arc-swap = "1"
 dashmap = "6"
 bytemuck = { version = "1", features = ["derive"] }
 async-trait = "0.1"
+pulp = "0.19"
+moka = { version = "0.12", features = ["future"] }
 
 libsql = { version = "0.9", default-features = false, features = ["core", "serde"] }
 agent-client-protocol = "0.11"
