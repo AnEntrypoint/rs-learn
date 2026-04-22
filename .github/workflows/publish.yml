@@ -92,14 +92,6 @@ jobs:
             --notes "Automated release for v${{ steps.ver.outputs.next }}" \
             --target main
 
-      - name: Trigger release binary build
-        if: steps.tag.outputs.exists == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          gh workflow run release.yml -f tag="v${{ steps.ver.outputs.next }}"
-
       - name: Publish to crates.io
         if: steps.tag.outputs.exists == 'false'
         continue-on-error: true
