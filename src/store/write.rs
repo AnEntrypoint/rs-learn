@@ -6,43 +6,47 @@ use super::{now_ms, Store};
 
 impl Store {
     pub async fn insert_episode(&self, e: &EpisodeRow) -> Result<()> {
+        let gid = e.group_id.clone().unwrap_or_else(|| "default".into());
         self.conn.execute(
-            "INSERT INTO episodes(id,content,source,created_at,valid_at,invalid_at) VALUES(?1,?2,?3,?4,?5,?6)
+            "INSERT INTO episodes(id,content,source,group_id,created_at,valid_at,invalid_at) VALUES(?1,?2,?3,?4,?5,?6,?7)
              ON CONFLICT(id) DO UPDATE SET content=excluded.content, source=excluded.source,
-               valid_at=excluded.valid_at, invalid_at=excluded.invalid_at",
-            libsql::params![e.id.clone(), e.content.clone(), e.source.clone(), e.created_at.unwrap_or_else(now_ms), e.valid_at, e.invalid_at],
+               group_id=excluded.group_id, valid_at=excluded.valid_at, invalid_at=excluded.invalid_at",
+            libsql::params![e.id.clone(), e.content.clone(), e.source.clone(), gid, e.created_at.unwrap_or_else(now_ms), e.valid_at, e.invalid_at],
         ).await?;
         Ok(())
     }
 
     pub async fn insert_node(&self, n: &NodeRow) -> Result<()> {
         let lit = vec_lit(n.embedding.as_deref());
+        let gid = n.group_id.clone().unwrap_or_else(|| "default".into());
         let sql = format!(
-            "INSERT INTO nodes(id,name,type,summary,embedding,level,created_at) VALUES(?1,?2,?3,?4,{},?5,?6)
+            "INSERT INTO nodes(id,name,type,summary,embedding,level,group_id,created_at) VALUES(?1,?2,?3,?4,{},?5,?6,?7)
              ON CONFLICT(id) DO UPDATE SET name=excluded.name, type=excluded.type,
-               summary=excluded.summary, embedding=excluded.embedding, level=excluded.level",
+               summary=excluded.summary, embedding=excluded.embedding, level=excluded.level,
+               group_id=excluded.group_id",
             lit
         );
         self.conn.execute(&sql, libsql::params![
             n.id.clone(), n.name.clone(), n.r#type.clone(), n.summary.clone().unwrap_or_default(),
-            n.level.unwrap_or(0), n.created_at.unwrap_or_else(now_ms)
+            n.level.unwrap_or(0), gid, n.created_at.unwrap_or_else(now_ms)
         ]).await?;
         Ok(())
     }
 
     pub async fn insert_edge(&self, e: &EdgeRow) -> Result<()> {
         let lit = vec_lit(e.embedding.as_deref());
+        let gid = e.group_id.clone().unwrap_or_else(|| "default".into());
         let sql = format!(
-            "INSERT INTO edges(id,src,dst,relation,fact,embedding,weight,created_at,valid_at,invalid_at)
-             VALUES(?1,?2,?3,?4,?5,{},?6,?7,?8,?9)
+            "INSERT INTO edges(id,src,dst,relation,fact,embedding,weight,group_id,created_at,valid_at,invalid_at)
+             VALUES(?1,?2,?3,?4,?5,{},?6,?7,?8,?9,?10)
              ON CONFLICT(id) DO UPDATE SET relation=excluded.relation, fact=excluded.fact,
-               embedding=excluded.embedding, weight=excluded.weight,
+               embedding=excluded.embedding, weight=excluded.weight, group_id=excluded.group_id,
                valid_at=excluded.valid_at, invalid_at=excluded.invalid_at",
             lit
         );
         self.conn.execute(&sql, libsql::params![
             e.id.clone(), e.src.clone(), e.dst.clone(), e.relation.clone(), e.fact.clone().unwrap_or_default(),
-            e.weight.unwrap_or(1.0), e.created_at.unwrap_or_else(now_ms), e.valid_at, e.invalid_at
+            e.weight.unwrap_or(1.0), gid, e.created_at.unwrap_or_else(now_ms), e.valid_at, e.invalid_at
         ]).await?;
         Ok(())
     }

@@ -117,6 +117,9 @@ impl CommunityOps {
     }
 
     async fn insert_community(&self, id: &str, name: &str, summary: &str, emb: Option<&[f32]>, now: i64) -> Result<()> {
+        use super::prompts::snippets::MAX_SUMMARY_CHARS;
+        use super::text::truncate_at_sentence;
+        let summary = truncate_at_sentence(summary, MAX_SUMMARY_CHARS);
         let lit = crate::store::vec_lit(emb);
         let sql = format!(
             "INSERT INTO communities(id,name,summary,embedding,level,created_at)
@@ -126,7 +129,7 @@ impl CommunityOps {
             lit
         );
         self.store.conn.execute(&sql, libsql::params![
-            id.to_string(), name.to_string(), summary.to_string(), 0_i64, now
+            id.to_string(), name.to_string(), summary, 0_i64, now
         ]).await?;
         Ok(())
     }

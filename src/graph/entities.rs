@@ -27,6 +27,7 @@ pub struct Entity {
     pub name: String,
     pub entity_type: Option<String>,
     pub embedding: Option<Vec<f32>>,
+    pub group_id: Option<String>,
 }
 
 pub struct EntityOps {
@@ -93,6 +94,7 @@ impl EntityOps {
         candidates: Vec<ExtractedEntity>,
         episode_content: &str,
         previous_episodes: &Value,
+        group_id: Option<&str>,
     ) -> Result<Vec<Entity>> {
         let mut resolved: Vec<Entity> = Vec::with_capacity(candidates.len());
         for cand in candidates {
@@ -108,6 +110,7 @@ impl EntityOps {
                     name: cand.name,
                     entity_type: None,
                     embedding: Some(emb),
+                    group_id: group_id.map(String::from),
                 });
                 continue;
             }
@@ -146,6 +149,7 @@ impl EntityOps {
                                 name: cand.name,
                                 entity_type: None,
                                 embedding: Some(emb),
+                                group_id: group_id.map(String::from),
                             });
                             continue;
                         }
@@ -157,19 +161,23 @@ impl EntityOps {
                 name: cand.name,
                 entity_type: None,
                 embedding: Some(emb),
+                group_id: group_id.map(String::from),
             });
         }
         Ok(resolved)
     }
 
     pub async fn upsert_node(&self, ent: &Entity) -> Result<()> {
+        use super::prompts::snippets::MAX_SUMMARY_CHARS;
+        use super::text::truncate_at_sentence;
         let row = NodeRow {
             id: ent.id.clone(),
             name: ent.name.clone(),
             r#type: ent.entity_type.clone(),
-            summary: Some(String::new()),
+            summary: Some(truncate_at_sentence("", MAX_SUMMARY_CHARS)),
             embedding: ent.embedding.clone(),
             level: Some(0),
+            group_id: ent.group_id.clone(),
             created_at: None,
         };
         self.store.insert_node(&row).await

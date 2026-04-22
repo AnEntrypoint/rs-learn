@@ -36,6 +36,7 @@ pub struct ResolvedEdge {
     pub embedding: Option<Vec<f32>>,
     pub valid_at: Option<i64>,
     pub invalid_at: Option<i64>,
+    pub group_id: Option<String>,
 }
 
 pub struct EdgeOps {
@@ -119,6 +120,7 @@ impl EdgeOps {
                 embedding: emb,
                 valid_at,
                 invalid_at,
+                group_id: entities.first().and_then(|e| e.group_id.clone()),
             });
         }
         Ok(resolved)
@@ -173,6 +175,7 @@ impl EdgeOps {
             fact: Some(e.fact.clone()),
             embedding: e.embedding.clone(),
             weight: Some(1.0),
+            group_id: e.group_id.clone(),
             valid_at: e.valid_at,
             invalid_at: e.invalid_at,
             created_at: None,
@@ -212,6 +215,7 @@ impl EdgeOps {
                 relation: row.get(3).ok(),
                 fact: row.get(4).ok(),
                 weight: row.get::<f64>(5).ok(),
+                group_id: None,
                 created_at: row.get(6).ok(),
                 valid_at: row.get(7).ok(),
                 invalid_at: row.get(8).ok(),

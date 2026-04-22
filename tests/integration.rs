@@ -56,6 +56,7 @@ async fn section_01_store_open_close_and_schema() {
         id: "n1".into(), name: "alpha".into(), r#type: Some("concept".into()),
         summary: Some("hello".into()), embedding: Some(rand_emb(1)),
         level: Some(0), created_at: Some(now),
+            group_id: None,
     }).await.expect("insert node");
     assert_eq!(store.count_rows("nodes").await, 1);
     store.close().await;

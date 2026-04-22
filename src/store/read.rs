@@ -146,6 +146,7 @@ impl Store {
             out.push(super::types::NodeRow {
                 id: row.get(0)?, name: row.get(1)?, r#type: row.get(2).ok(),
                 summary: row.get(3).ok(), level: row.get(4).ok(),
+                group_id: None,
                 created_at: row.get(5).ok(), embedding: None,
             });
         }
@@ -234,6 +235,7 @@ impl Store {
                 id: row.get(0)?, name: row.get(1)?,
                 r#type: row.get(2).ok(), summary: row.get(3).ok(),
                 level: row.get(4).ok(), created_at: row.get(5).ok(),
+                group_id: None,
                 embedding: None,
             });
         }
@@ -281,6 +283,7 @@ impl Store {
                 id: row.get(0)?, src: row.get(1)?, dst: row.get(2)?,
                 relation: row.get(3).ok(), fact: row.get(4).ok(),
                 weight: row.get::<f64>(5).ok(),
+                group_id: None,
                 created_at: row.get(6).ok(),
                 valid_at: row.get(7).ok(), invalid_at: row.get(8).ok(),
                 embedding: None,

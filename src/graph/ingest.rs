@@ -19,6 +19,8 @@ pub struct BulkEpisode {
     pub source: String,
     #[serde(default)]
     pub reference_time: Option<String>,
+    #[serde(default)]
+    pub group_id: Option<String>,
 }
 
 fn default_source() -> String { "message".into() }
@@ -58,6 +60,7 @@ impl Ingestor {
         content: &str,
         source: &str,
         reference_time: Option<&str>,
+        group_id: Option<&str>,
     ) -> Result<IngestResult> {
         let _lock = self.writer.lock().await;
         let now = now_ms();
@@ -69,6 +72,7 @@ impl Ingestor {
             id: episode_id.clone(),
             content: content.to_string(),
             source: Some(source.to_string()),
+            group_id: group_id.map(String::from),
             created_at: Some(now),
             valid_at: Some(now),
             invalid_at: None,
@@ -85,12 +89,13 @@ impl Ingestor {
             .extract_entities(source, content, &previous)
             .await
             .unwrap_or_default();
-        let entities = self
+        let mut entities = self
             .entity_ops
-            .dedup_entities(extracted, content, &previous)
+            .dedup_entities(extracted, content, &previous, group_id)
             .await
             .unwrap_or_default();
-        for ent in &entities {
+        for ent in entities.iter_mut() {
+            if ent.group_id.is_none() { ent.group_id = group_id.map(String::from); }
             let _ = self.entity_ops.upsert_node(ent).await;
         }
 
@@ -99,11 +104,14 @@ impl Ingestor {
             .extract_edges(content, &previous, &entities, &ref_time_str)
             .await
             .unwrap_or_default();
-        let resolved = self
+        let mut resolved = self
             .edge_ops
             .resolve_edges(extracted_edges, &entities)
             .await
             .unwrap_or_default();
+        for e in resolved.iter_mut() {
+            if e.group_id.is_none() { e.group_id = group_id.map(String::from); }
+        }
         let expired_ids = self
             .edge_ops
             .resolve_temporal(&resolved)
@@ -115,7 +123,12 @@ impl Ingestor {
         for e in &resolved {
             let _ = self.edge_ops.upsert_edge(e).await;
         }
-        self.write_mentions(&episode_id, &entities, now).await?;
+        self.write_mentions(&episode_id, &entities, now, group_id).await?;
+
+        let m = super::metrics::metrics();
+        super::metrics::incr(&m.episodes_ingested, 1);
+        super::metrics::incr(&m.nodes_upserted, entities.len() as u64);
+        super::metrics::incr(&m.edges_upserted, resolved.len() as u64);
 
         Ok(IngestResult {
             episode_id,
@@ -153,7 +166,7 @@ impl Ingestor {
         Ok(json!(out))
     }
 
-    async fn write_mentions(&self, episode_id: &str, entities: &[Entity], now: i64) -> Result<()> {
+    async fn write_mentions(&self, episode_id: &str, entities: &[Entity], now: i64, group_id: Option<&str>) -> Result<()> {
         for ent in entities {
             let edge = EdgeRow {
                 id: Uuid::new_v4().to_string(),
@@ -163,6 +176,7 @@ impl Ingestor {
                 fact: Some(String::new()),
                 embedding: None,
                 weight: Some(1.0),
+                group_id: group_id.map(String::from),
                 created_at: Some(now),
                 valid_at: Some(now),
                 invalid_at: None,
@@ -174,9 +188,12 @@ impl Ingestor {
 }
 
 impl Ingestor {
-    pub async fn add_triplet(&self, src: Entity, dst: Entity, relation: &str, fact: &str) -> Result<String> {
+    pub async fn add_triplet(&self, src: Entity, dst: Entity, relation: &str, fact: &str, group_id: Option<&str>) -> Result<String> {
         let _lock = self.writer.lock().await;
         let now = now_ms();
+        let mut src = src; let mut dst = dst;
+        if src.group_id.is_none() { src.group_id = group_id.map(String::from); }
+        if dst.group_id.is_none() { dst.group_id = group_id.map(String::from); }
         let _ = self.entity_ops.upsert_node(&src).await;
         let _ = self.entity_ops.upsert_node(&dst).await;
         let emb = self.embedder.embed(fact).ok();
@@ -189,15 +206,17 @@ impl Ingestor {
             embedding: emb,
             valid_at: Some(now),
             invalid_at: None,
+            group_id: group_id.map(String::from),
         };
         self.edge_ops.upsert_edge(&resolved).await?;
         Ok(resolved.id)
     }
 
-    pub async fn add_episode_bulk(&self, items: Vec<BulkEpisode>) -> Result<Vec<IngestResult>> {
+    pub async fn add_episode_bulk(&self, items: Vec<BulkEpisode>, group_id: Option<&str>) -> Result<Vec<IngestResult>> {
         let mut out = Vec::with_capacity(items.len());
         for it in items {
-            let r = self.add_episode(&it.content, &it.source, it.reference_time.as_deref()).await?;
+            let gid = it.group_id.as_deref().or(group_id);
+            let r = self.add_episode(&it.content, &it.source, it.reference_time.as_deref(), gid).await?;
             out.push(r);
         }
         Ok(out)
@@ -226,21 +245,24 @@ impl Ingestor {
         Ok(out)
     }
 
-    pub async fn clear_graph(&self) -> Result<()> {
+    pub async fn clear_graph(&self, group_ids: Option<&[String]>) -> Result<()> {
         let _lock = self.writer.lock().await;
-        for tbl in [
-            "edges",
-            "nodes",
-            "episodes",
-            "communities",
-            "community_members",
-            "saga_episodes",
-            "sagas",
-        ] {
-            self.store
-                .conn
-                .execute(&format!("DELETE FROM {tbl}"), ())
-                .await?;
+        let group_tables = ["edges", "nodes", "episodes", "communities"];
+        let global_tables = ["community_members", "saga_episodes", "sagas"];
+        match group_ids {
+            Some(gids) if !gids.is_empty() => {
+                let placeholders = gids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                for tbl in group_tables {
+                    let sql = format!("DELETE FROM {tbl} WHERE group_id IN ({placeholders})");
+                    let params: Vec<libsql::Value> = gids.iter().map(|g| libsql::Value::Text(g.clone())).collect();
+                    self.store.conn.execute(&sql, params).await?;
+                }
+            }
+            _ => {
+                for tbl in group_tables.iter().chain(global_tables.iter()) {
+                    self.store.conn.execute(&format!("DELETE FROM {tbl}"), ()).await?;
+                }
+            }
         }
         Ok(())
     }

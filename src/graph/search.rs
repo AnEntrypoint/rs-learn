@@ -164,6 +164,9 @@ impl Searcher {
         if !cfg.use_vector && !cfg.use_fts {
             anyhow::bail!("search_table: both use_vector and use_fts disabled");
         }
+        let m = super::metrics::metrics();
+        super::metrics::incr(&m.search_calls, 1);
+        let started = std::time::Instant::now();
         let emb = self.embedder.embed(query).unwrap_or_default();
         let k_fetch = (cfg.limit * 3).max(10);
         let vec_rows = if cfg.use_vector && !emb.is_empty() {
@@ -188,13 +191,15 @@ impl Searcher {
         {
             effective.center_node_ids = self.auto_resolve_centers(query, 3).await;
         }
-        match effective.reranker {
-            Reranker::Rrf => Ok(hits.into_iter().take(effective.limit).collect()),
-            Reranker::Mmr => Ok(mmr(hits, effective.limit, effective.mmr_lambda, &emb)),
-            Reranker::NodeDistance => Ok(self.node_distance_rerank(hits, &effective).await),
-            Reranker::EpisodeMentions => Ok(self.episode_mentions_rerank(hits, effective.limit).await),
-            Reranker::CrossEncoder => Ok(self.cross_encoder_rerank(query, hits, effective.limit).await),
-        }
+        let result: Vec<SearchHit> = match effective.reranker {
+            Reranker::Rrf => hits.into_iter().take(effective.limit).collect(),
+            Reranker::Mmr => mmr(hits, effective.limit, effective.mmr_lambda, &emb),
+            Reranker::NodeDistance => self.node_distance_rerank(hits, &effective).await,
+            Reranker::EpisodeMentions => self.episode_mentions_rerank(hits, effective.limit).await,
+            Reranker::CrossEncoder => self.cross_encoder_rerank(query, hits, effective.limit).await,
+        };
+        super::metrics::incr(&m.search_total_ms, started.elapsed().as_millis() as u64);
+        Ok(result)
     }
 
     fn filter_as_of_edges(&self, hits: Vec<SearchHit>, as_of: Option<i64>) -> Vec<SearchHit> {

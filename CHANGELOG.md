@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+- graph: full multi-tenancy + boundary hardening pass (closes prior bungraph→rs-learn gaps the previous "absorption" missed).
+  - `NodeRow`, `EdgeRow`, `EpisodeRow`, `Entity`, `ResolvedEdge` carry `group_id: Option<String>`. `Store::insert_node` / `insert_edge` / `insert_episode` now thread it into the column list (was always defaulting to `'default'` regardless of caller).
+  - `Ingestor::add_episode(content, source, reference_time, group_id)`, `add_triplet(..., group_id)`, `add_episode_bulk(items, group_id)` — `BulkEpisode` also gains optional per-item `group_id` (item override beats batch-level).
+  - HTTP `/messages`, `/triplet`, `/entity-node`, `/clear` and MCP `add_episode` / `add_episode_bulk` / `add_triplet` / `clear_graph` accept `group_id` (or `group_ids` for clear) and route it through ingest. Previously parsed and dropped — silent multi-tenant collapse fixed.
+  - `Ingestor::clear_graph(group_ids: Option<&[String]>)` — when `Some`, scoped `DELETE WHERE group_id IN (...)` across `edges/nodes/episodes/communities`; `None` wipes globals too.
+- graph: validation module at boundaries (`src/graph/validation.rs`).
+  - `validate_group_id` (regex `[A-Za-z0-9_.-]`, ≤128 chars), `validate_content` (≤200_000 bytes), `validate_limit` (1..=1000), `validate_iso_date`, `validate_reranker`. Wired into MCP `add_episode` / `add_episode_bulk` / `add_triplet` / `clear_graph` and HTTP `/messages` / `/triplet` / `/entity-node` / `/clear`. Errors return structured 400 / JSON-RPC error.
+- graph: runtime summary truncation (`src/graph/text.rs`).
+  - `truncate_at_sentence(s, max)` clamps at last `.!?` boundary within `max` chars, falls back to char-cut if no sentence end. Applied to community summaries (`CommunityOps::insert_community`) and saga summaries (`SagaOps::summarize_saga`).
+  - `MAX_SUMMARY_CHARS` bumped 500 → 1000 (parity with bungraph).
+- graph: observability via `src/graph/metrics.rs`.
+  - Atomic counters: `episodes_ingested`, `nodes_upserted`, `edges_upserted`, `search_calls`, `search_total_ms`, `llm_calls`, `llm_total_ms`, `dedup_candidates_seen`. Recorded in `Ingestor::add_episode`, `Searcher::search_table`, `LlmJson::call`. Registered as `/debug/graph` provider via `metrics::register()` on `cmd_serve` + `cmd_mcp` startup; also surfaced via MCP `debug_state`.
+- tests: 6 new regression tests — `group_id_persisted_through_ingest`, `clear_graph_per_group_isolates`, `validation_rejects_bad_group_id`, `truncate_at_sentence_clamps_to_boundary`, `metrics_counters_advance_after_ingest`, plus updated `group_id_filter_cascade_delete`. 19 graph + 15 integration + 3 spine tests all green.
+
 - graph: absorb remaining bungraph behaviour gaps.
   - Per-scope unified search config via `SearchAllConfig { nodes, edges, episodes, communities }`; each scope carries its own `reranker`, `limit`, `use_vector`, `use_fts`, `mmr_lambda`. Old `Searcher::search_all(&SearchConfig)` still works (back-compat).
   - `SearchConfig` gains `use_vector`, `use_fts`, `center_node_ids` fields; disabling both fails loud instead of silently returning empty.

@@ -5,6 +5,7 @@ pub struct EpisodeRow {
     pub id: String,
     pub content: String,
     pub source: Option<String>,
+    pub group_id: Option<String>,
     pub created_at: Option<i64>,
     pub valid_at: Option<i64>,
     pub invalid_at: Option<i64>,
@@ -18,6 +19,7 @@ pub struct NodeRow {
     pub summary: Option<String>,
     pub embedding: Option<Vec<f32>>,
     pub level: Option<i64>,
+    pub group_id: Option<String>,
     pub created_at: Option<i64>,
 }
 
@@ -30,6 +32,7 @@ pub struct EdgeRow {
     pub fact: Option<String>,
     pub embedding: Option<Vec<f32>>,
     pub weight: Option<f64>,
+    pub group_id: Option<String>,
     pub created_at: Option<i64>,
     pub valid_at: Option<i64>,
     pub invalid_at: Option<i64>,

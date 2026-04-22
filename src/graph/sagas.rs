@@ -73,6 +73,7 @@ impl SagaOps {
         let summary = v
             .and_then(|v| v.get("summary").and_then(|s| s.as_str()).map(String::from))
             .unwrap_or_default();
+        let summary = super::text::truncate_at_sentence(&summary, super::prompts::snippets::MAX_SUMMARY_CHARS);
         self.store.conn.execute(
             "UPDATE sagas SET summary = ?1 WHERE id = ?2",
             libsql::params![summary.clone(), saga_id.to_string()],

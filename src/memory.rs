@@ -106,7 +106,7 @@ impl Memory {
         self.store.insert_node(&NodeRow {
             id: nid.clone(), name, r#type: Some("memory".into()),
             summary: Some(summary), embedding: Some(node.embedding.clone()),
-            level: Some(lvl), created_at: Some(ts),
+            level: Some(lvl), group_id: None, created_at: Some(ts),
         }).await?;
         for l in 0..=lvl {
             let neigh = self.neighbors_at_level(&node.embedding, l, M, &nid).await?;

@@ -1,4 +1,4 @@
-pub const MAX_SUMMARY_CHARS: usize = 500;
+pub const MAX_SUMMARY_CHARS: usize = 1000;
 
 pub const SUMMARY_INSTRUCTIONS: &str = "Summary Guidelines:
 1. Extract ONLY facts explicitly stated in MESSAGES.

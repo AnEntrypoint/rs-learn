@@ -30,13 +30,17 @@ impl LlmJson {
     where
         F: Fn(&Value) -> std::result::Result<(), String>,
     {
+        let m = super::metrics::metrics();
+        super::metrics::incr(&m.llm_calls, 1);
+        let started = std::time::Instant::now();
         let mut last_err: Option<LlmError> = None;
+        let mut out: Option<Value> = None;
         for attempt in 1..=self.max_attempts {
             match self.backend.generate(system, user, self.timeout_ms).await {
                 Ok(v) => {
                     let v = coerce_json(v);
                     match validate(&v) {
-                        Ok(()) => return Ok(v),
+                        Ok(()) => { out = Some(v); break; }
                         Err(msg) => {
                             tracing::warn!(attempt, "LLM JSON schema failed: {msg}");
                             last_err = Some(LlmError::Validation(format!("schema: {msg}")));
@@ -53,7 +57,11 @@ impl LlmJson {
                 sleep(Duration::from_millis(backoff)).await;
             }
         }
-        Err(last_err.unwrap_or_else(|| LlmError::Validation("llm: no attempts".into())))
+        super::metrics::incr(&m.llm_total_ms, started.elapsed().as_millis() as u64);
+        match out {
+            Some(v) => Ok(v),
+            None => Err(last_err.unwrap_or_else(|| LlmError::Validation("llm: no attempts".into()))),
+        }
     }
 }
 

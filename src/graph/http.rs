@@ -95,11 +95,15 @@ struct MessagesBody {
     source: Option<String>,
     #[serde(default)]
     reference_time: Option<String>,
+    #[serde(default)]
+    group_id: Option<String>,
 }
 
 async fn post_messages(State(s): State<HttpState>, Json(body): Json<MessagesBody>) -> Result<Json<Value>, Problem> {
     let source = body.source.unwrap_or_else(|| "message".into());
-    let res = s.ingestor.add_episode(&body.content, &source, body.reference_time.as_deref())
+    if let Some(g) = &body.group_id { super::validation::validate_group_id(g).map_err(|e| bad(e.to_string()))?; }
+    super::validation::validate_content(&body.content).map_err(|e| bad(e.to_string()))?;
+    let res = s.ingestor.add_episode(&body.content, &source, body.reference_time.as_deref(), body.group_id.as_deref())
         .await.map_err(|e| ise(e.to_string()))?;
     Ok(Json(json!({
         "episode_id": res.episode_id,
@@ -117,15 +121,18 @@ struct TripletBody {
     dst_name: String,
     relation: String,
     fact: String,
+    #[serde(default)]
+    group_id: Option<String>,
 }
 
 async fn post_triplet(State(s): State<HttpState>, Json(body): Json<TripletBody>) -> Result<Json<Value>, Problem> {
     use super::entities::Entity;
+    if let Some(g) = &body.group_id { super::validation::validate_group_id(g).map_err(|e| bad(e.to_string()))?; }
     let src_emb = s.embedder.embed(&body.src_name).ok();
     let dst_emb = s.embedder.embed(&body.dst_name).ok();
-    let src = Entity { id: body.src_id, name: body.src_name, entity_type: None, embedding: src_emb };
-    let dst = Entity { id: body.dst_id, name: body.dst_name, entity_type: None, embedding: dst_emb };
-    let eid = s.ingestor.add_triplet(src, dst, &body.relation, &body.fact).await.map_err(|e| ise(e.to_string()))?;
+    let src = Entity { id: body.src_id, name: body.src_name, entity_type: None, embedding: src_emb, group_id: body.group_id.clone() };
+    let dst = Entity { id: body.dst_id, name: body.dst_name, entity_type: None, embedding: dst_emb, group_id: body.group_id.clone() };
+    let eid = s.ingestor.add_triplet(src, dst, &body.relation, &body.fact, body.group_id.as_deref()).await.map_err(|e| ise(e.to_string()))?;
     Ok(Json(json!({ "edge_id": eid })))
 }
 
@@ -134,11 +141,14 @@ struct EntityNodeBody {
     name: String,
     #[serde(default)]
     r#type: Option<String>,
+    #[serde(default)]
+    group_id: Option<String>,
 }
 
 async fn post_entity_node(State(s): State<HttpState>, Json(body): Json<EntityNodeBody>) -> Result<Json<Value>, Problem> {
     use crate::store::types::NodeRow;
     use uuid::Uuid;
+    if let Some(g) = &body.group_id { super::validation::validate_group_id(g).map_err(|e| bad(e.to_string()))?; }
     let id = Uuid::new_v4().to_string();
     let emb = s.embedder.embed(&body.name).ok();
     let row = NodeRow {
@@ -148,6 +158,7 @@ async fn post_entity_node(State(s): State<HttpState>, Json(body): Json<EntityNod
         summary: Some(String::new()),
         embedding: emb,
         level: Some(0),
+        group_id: body.group_id,
         created_at: None,
     };
     s.store.insert_node(&row).await.map_err(|e| ise(e.to_string()))?;
@@ -213,8 +224,16 @@ async fn get_episodes(State(s): State<HttpState>, Path(gid): Path<String>) -> Re
     Ok(Json(json!({ "episodes": out })))
 }
 
-async fn post_clear(State(s): State<HttpState>) -> Result<Json<Value>, Problem> {
-    s.ingestor.clear_graph().await.map_err(|e| ise(e.to_string()))?;
+#[derive(Deserialize, Default)]
+struct ClearBody {
+    #[serde(default)]
+    group_ids: Option<Vec<String>>,
+}
+
+async fn post_clear(State(s): State<HttpState>, body: Option<Json<ClearBody>>) -> Result<Json<Value>, Problem> {
+    let gids = body.and_then(|b| b.0.group_ids);
+    if let Some(g) = &gids { for x in g { super::validation::validate_group_id(x).map_err(|e| bad(e.to_string()))?; } }
+    s.ingestor.clear_graph(gids.as_deref()).await.map_err(|e| ise(e.to_string()))?;
     Ok(Json(json!({ "status": "ok" })))
 }
 
@@ -288,7 +307,7 @@ async fn post_search(State(s): State<HttpState>, Json(body): Json<SearchBody>) -
         all.center_node_ids = body.center_node_ids.clone();
         let apply = |slot: &mut Option<SearchConfig>, sb: Option<&ScopeBody>| -> Result<(), Problem> {
             if let Some(sb) = sb {
-                let built = scope_body_to_cfg(sb, limit).map_err(bad)?;
+                let built = scope_body_to_cfg(sb, limit).map_err(|e| bad(e.to_string()))?;
                 *slot = Some(SearchConfig { as_of: cfg.as_of, ..built });
             }
             Ok(())

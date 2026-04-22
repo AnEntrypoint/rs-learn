@@ -83,7 +83,10 @@ impl McpServer {
                 let content = str_arg(&args, "content")?;
                 let source = args.get("source").and_then(|s| s.as_str()).unwrap_or("message").to_string();
                 let ref_time = args.get("reference_time").and_then(|s| s.as_str()).map(String::from);
-                let r = self.ingestor.add_episode(&content, &source, ref_time.as_deref()).await?;
+                let group_id = args.get("group_id").and_then(|s| s.as_str()).map(String::from);
+                if let Some(g) = &group_id { super::validation::validate_group_id(g)?; }
+                super::validation::validate_content(&content)?;
+                let r = self.ingestor.add_episode(&content, &source, ref_time.as_deref(), group_id.as_deref()).await?;
                 Ok(json!({
                     "episode_id": r.episode_id,
                     "nodes": r.node_count,
@@ -94,10 +97,12 @@ impl McpServer {
             "add_episode_bulk" => {
                 let arr = args.get("episodes").and_then(|a| a.as_array())
                     .ok_or_else(|| anyhow::anyhow!("missing episodes[] arg"))?;
+                let group_id = args.get("group_id").and_then(|s| s.as_str()).map(String::from);
+                if let Some(g) = &group_id { super::validation::validate_group_id(g)?; }
                 let items: Vec<super::ingest::BulkEpisode> = arr.iter()
                     .filter_map(|v| serde_json::from_value(v.clone()).ok())
                     .collect();
-                let rs = self.ingestor.add_episode_bulk(items).await?;
+                let rs = self.ingestor.add_episode_bulk(items, group_id.as_deref()).await?;
                 Ok(json!({
                     "count": rs.len(),
                     "episode_ids": rs.iter().map(|r| r.episode_id.clone()).collect::<Vec<_>>(),
@@ -116,9 +121,11 @@ impl McpServer {
                 let dst_name = str_arg(&args, "dst_name")?;
                 let relation = str_arg(&args, "relation")?;
                 let fact = args.get("fact").and_then(|s| s.as_str()).unwrap_or("").to_string();
-                let src = Entity { id: src_id, name: src_name.clone(), entity_type: None, embedding: self.embedder.embed(&src_name).ok() };
-                let dst = Entity { id: dst_id, name: dst_name.clone(), entity_type: None, embedding: self.embedder.embed(&dst_name).ok() };
-                let eid = self.ingestor.add_triplet(src, dst, &relation, &fact).await?;
+                let group_id = args.get("group_id").and_then(|s| s.as_str()).map(String::from);
+                if let Some(g) = &group_id { super::validation::validate_group_id(g)?; }
+                let src = Entity { id: src_id, name: src_name.clone(), entity_type: None, embedding: self.embedder.embed(&src_name).ok(), group_id: group_id.clone() };
+                let dst = Entity { id: dst_id, name: dst_name.clone(), entity_type: None, embedding: self.embedder.embed(&dst_name).ok(), group_id: group_id.clone() };
+                let eid = self.ingestor.add_triplet(src, dst, &relation, &fact, group_id.as_deref()).await?;
                 Ok(json!({ "edge_id": eid }))
             }
             "search" => self.do_search_all(args).await,
@@ -129,7 +136,13 @@ impl McpServer {
             "get_node" => self.get_single("nodes", args).await,
             "get_edge" => self.get_single("edges", args).await,
             "get_episode" => self.get_single("episodes", args).await,
-            "clear_graph" => { self.ingestor.clear_graph().await?; Ok(json!({ "status": "ok" })) }
+            "clear_graph" => {
+                let gids: Option<Vec<String>> = args.get("group_ids").and_then(|v| v.as_array())
+                    .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect());
+                if let Some(g) = &gids { for x in g { super::validation::validate_group_id(x)?; } }
+                self.ingestor.clear_graph(gids.as_deref()).await?;
+                Ok(json!({ "status": "ok" }))
+            }
             "build_communities" => {
                 let r = self.community_ops.build_communities().await?;
                 Ok(json!({ "communities": r.community_count, "members": r.member_count }))

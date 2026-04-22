@@ -64,7 +64,7 @@ async fn cmd_add(args: &[String]) -> anyhow::Result<()> {
     let source = flag(args, "--source").unwrap_or_else(|| "message".into());
     let (store, embedder, llm) = open_graph().await?;
     let ingestor = Ingestor::new(store, embedder, llm);
-    let r = ingestor.add_episode(text, &source, None).await?;
+    let r = ingestor.add_episode(text, &source, None, None).await?;
     println!(
         "episode={} nodes={} edges={} expired={}",
         r.episode_id, r.node_count, r.edge_count, r.expired_edge_ids.len()
@@ -94,7 +94,7 @@ async fn cmd_search(args: &[String]) -> anyhow::Result<()> {
 
 async fn cmd_clear() -> anyhow::Result<()> {
     let (store, embedder, llm) = open_graph().await?;
-    Ingestor::new(store, embedder, llm).clear_graph().await?;
+    Ingestor::new(store, embedder, llm).clear_graph(None).await?;
     println!("cleared");
     Ok(())
 }
@@ -110,6 +110,7 @@ async fn cmd_build_communities() -> anyhow::Result<()> {
 
 async fn cmd_serve(args: &[String]) -> anyhow::Result<()> {
     let port: u16 = flag(args, "--port").and_then(|s| s.parse().ok()).unwrap_or(8000);
+    rs_learn::graph::metrics::register();
     let (store, embedder, llm) = open_graph().await?;
     let state = HttpState::new(store, embedder, llm);
     let app = state.router();
@@ -121,6 +122,7 @@ async fn cmd_serve(args: &[String]) -> anyhow::Result<()> {
 }
 
 async fn cmd_mcp() -> anyhow::Result<()> {
+    rs_learn::graph::metrics::register();
     let (store, embedder, llm) = open_graph().await?;
     let server = McpServer::new(store, embedder, llm);
     server.serve_stdio().await

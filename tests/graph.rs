@@ -60,6 +60,7 @@ async fn episode_and_node_edge_roundtrip_with_new_columns() {
         created_at: Some(now_ms()),
         valid_at: Some(now_ms()),
         invalid_at: None,
+            group_id: None,
     };
     store.insert_episode(&ep).await.unwrap();
     let n = NodeRow {
@@ -70,6 +71,7 @@ async fn episode_and_node_edge_roundtrip_with_new_columns() {
         embedding: Some(vec![0.1; 768]),
         level: Some(0),
         created_at: Some(now_ms()),
+            group_id: None,
     };
     store.insert_node(&n).await.unwrap();
     let e = EdgeRow {
@@ -83,6 +85,7 @@ async fn episode_and_node_edge_roundtrip_with_new_columns() {
         created_at: Some(now_ms()),
         valid_at: Some(now_ms()),
         invalid_at: None,
+            group_id: None,
     };
     store.insert_edge(&e).await.unwrap();
     assert_eq!(store.count_rows("episodes").await, 1);
@@ -94,13 +97,14 @@ async fn episode_and_node_edge_roundtrip_with_new_columns() {
 async fn expired_at_column_writable() {
     let (_dir, store) = open().await;
     let n = NodeRow { id: "n1".into(), name: "n1".into(), r#type: None, summary: None,
-        embedding: Some(vec![0.1; 768]), level: Some(0), created_at: Some(now_ms()) };
+        embedding: Some(vec![0.1; 768]), level: Some(0), group_id: None, created_at: Some(now_ms()) };
     store.insert_node(&n).await.unwrap();
     let e = EdgeRow {
         id: "e1".into(), src: "n1".into(), dst: "n1".into(),
         relation: Some("R".into()), fact: Some("f".into()),
         embedding: None, weight: Some(1.0),
         created_at: Some(now_ms()), valid_at: Some(100), invalid_at: None,
+            group_id: None,
     };
     store.insert_edge(&e).await.unwrap();
     store.conn.execute(
@@ -155,7 +159,7 @@ async fn ingest_with_stub_llm_persists_nodes_edges_and_mentions() {
     ]);
     let llm = Arc::new(LlmJson::with_limits(backend, 1, 5000, 1000));
     let ingestor = Ingestor::new(store.clone(), embedder, llm);
-    let r = ingestor.add_episode("Alice works at Acme Corp.", "text", None).await.unwrap();
+    let r = ingestor.add_episode("Alice works at Acme Corp.", "text", None, None).await.unwrap();
     assert_eq!(r.node_count, 2, "two entities resolved");
     assert_eq!(r.edge_count, 1, "one fact triple extracted");
     // Nodes + fact edge + 2 MENTIONS edges.
@@ -175,10 +179,10 @@ async fn bulk_ingest_and_get_episodes_roundtrip() {
     let llm = Arc::new(LlmJson::with_limits(backend, 1, 5000, 1000));
     let ingestor = Ingestor::new(store.clone(), embedder, llm);
     let items = vec![
-        rs_learn::graph::ingest::BulkEpisode { content: "first".into(), source: "text".into(), reference_time: None },
-        rs_learn::graph::ingest::BulkEpisode { content: "second".into(), source: "text".into(), reference_time: None },
+        rs_learn::graph::ingest::BulkEpisode { content: "first".into(), source: "text".into(), reference_time: None, group_id: None },
+        rs_learn::graph::ingest::BulkEpisode { content: "second".into(), source: "text".into(), reference_time: None, group_id: None },
     ];
-    let rs = ingestor.add_episode_bulk(items).await.unwrap();
+    let rs = ingestor.add_episode_bulk(items, None).await.unwrap();
     assert_eq!(rs.len(), 2);
     let eps = ingestor.get_episodes(None, 100).await.unwrap();
     assert_eq!(eps.len(), 2);
@@ -192,10 +196,12 @@ async fn search_with_stub_cross_encoder_reorders_hits() {
     store.insert_node(&NodeRow {
         id: "a".into(), name: "alpha".into(), r#type: None, summary: Some("".into()),
         embedding: Some(vec![0.1; 768]), level: Some(0), created_at: Some(now_ms()),
+            group_id: None,
     }).await.unwrap();
     store.insert_node(&NodeRow {
         id: "b".into(), name: "beta".into(), r#type: None, summary: Some("".into()),
         embedding: Some(vec![0.1; 768]), level: Some(0), created_at: Some(now_ms()),
+            group_id: None,
     }).await.unwrap();
     let embedder = Arc::new(Embedder::new());
     let backend = StubBackend::new(vec![
@@ -218,16 +224,19 @@ async fn search_all_fans_out_across_scopes() {
     store.insert_episode(&EpisodeRow {
         id: "e1".into(), content: "alpha".into(), source: Some("text".into()),
         created_at: Some(now), valid_at: Some(now), invalid_at: None,
+            group_id: None,
     }).await.unwrap();
     store.insert_node(&NodeRow {
         id: "n1".into(), name: "alpha".into(), r#type: None, summary: Some("".into()),
         embedding: Some(vec![0.1; 768]), level: Some(0), created_at: Some(now),
+            group_id: None,
     }).await.unwrap();
     store.insert_edge(&EdgeRow {
         id: "ed1".into(), src: "n1".into(), dst: "n1".into(),
         relation: Some("R".into()), fact: Some("alpha fact".into()),
         embedding: Some(vec![0.1; 768]), weight: Some(1.0),
         created_at: Some(now), valid_at: Some(now), invalid_at: None,
+            group_id: None,
     }).await.unwrap();
     let embedder = Arc::new(Embedder::new());
     let searcher = Searcher::new(store, embedder);
@@ -247,6 +256,7 @@ async fn graph_walk_follows_edges_by_depth() {
         store.insert_node(&NodeRow {
             id: id.into(), name: id.into(), r#type: None, summary: Some("".into()),
             embedding: Some(vec![0.1; 768]), level: Some(0), created_at: Some(now),
+            group_id: None,
         }).await.unwrap();
     }
     store.insert_edge(&EdgeRow {
@@ -254,12 +264,14 @@ async fn graph_walk_follows_edges_by_depth() {
         relation: Some("R".into()), fact: Some("".into()),
         embedding: None, weight: Some(1.0),
         created_at: Some(now), valid_at: Some(now), invalid_at: None,
+            group_id: None,
     }).await.unwrap();
     store.insert_edge(&EdgeRow {
         id: "bc".into(), src: "b".into(), dst: "c".into(),
         relation: Some("R".into()), fact: Some("".into()),
         embedding: None, weight: Some(1.0),
         created_at: Some(now), valid_at: Some(now), invalid_at: None,
+            group_id: None,
     }).await.unwrap();
     let ns1 = store.graph_walk(&["a".to_string()], 1, None).await.unwrap();
     let ids1: Vec<String> = ns1.iter().map(|n| n.id.clone()).collect();
@@ -280,6 +292,7 @@ async fn per_scope_search_respects_use_fts_toggle() {
     store.insert_node(&NodeRow {
         id: "n1".into(), name: "alpha".into(), r#type: None, summary: Some("".into()),
         embedding: Some(vec![0.2; 768]), level: Some(0), created_at: Some(now),
+            group_id: None,
     }).await.unwrap();
     let embedder = Arc::new(Embedder::new());
     let searcher = Searcher::new(store, embedder);
@@ -308,16 +321,18 @@ async fn bulk_ingest_context_respects_reference_time() {
     store.insert_episode(&EpisodeRow {
         id: "old".into(), content: "OLD".into(), source: Some("text".into()),
         created_at: Some(100), valid_at: Some(100), invalid_at: None,
+            group_id: None,
     }).await.unwrap();
     store.insert_episode(&EpisodeRow {
         id: "new".into(), content: "NEW".into(), source: Some("text".into()),
         created_at: Some(1_000_000_000_000), valid_at: Some(1_000_000_000_000), invalid_at: None,
+            group_id: None,
     }).await.unwrap();
     let embedder = Arc::new(Embedder::new());
     let backend = StubBackend::new(vec![ json!({ "extracted_entities": [] }) ]);
     let llm = Arc::new(LlmJson::with_limits(backend, 1, 5000, 1000));
     let ingestor = Ingestor::new(store.clone(), embedder, llm);
-    let _ = ingestor.add_episode("mid", "text", Some("1970-01-01T00:01:00.000Z")).await.unwrap();
+    let _ = ingestor.add_episode("mid", "text", Some("1970-01-01T00:01:00.000Z"), None).await.unwrap();
 }
 
 #[tokio::test]
@@ -325,17 +340,103 @@ async fn group_id_filter_cascade_delete() {
     let (_dir, store) = open().await;
     store.insert_episode(&EpisodeRow {
         id: "a".into(), content: "x".into(), source: None,
+        group_id: Some("g1".into()),
         created_at: Some(now_ms()), valid_at: None, invalid_at: None,
     }).await.unwrap();
-    store.conn.execute(
-        "UPDATE episodes SET group_id = 'g1' WHERE id = 'a'", (),
-    ).await.unwrap();
     store.insert_episode(&EpisodeRow {
         id: "b".into(), content: "y".into(), source: None,
+        group_id: Some("g2".into()),
         created_at: Some(now_ms()), valid_at: None, invalid_at: None,
     }).await.unwrap();
     store.conn.execute(
         "DELETE FROM episodes WHERE group_id = 'g1'", (),
     ).await.unwrap();
     assert_eq!(store.count_rows("episodes").await, 1);
+}
+
+#[tokio::test]
+async fn group_id_persisted_through_ingest() {
+    use rs_learn::graph::ingest::Ingestor;
+    use rs_learn::graph::llm::LlmJson;
+    use rs_learn::embeddings::Embedder;
+    let (_dir, store) = open().await;
+    let embedder = Arc::new(Embedder::new());
+    let backend = StubBackend::new(vec![
+        json!({ "extracted_entities": [] }),
+    ]);
+    let llm = Arc::new(LlmJson::with_limits(backend, 1, 5000, 1000));
+    let ingestor = Ingestor::new(store.clone(), embedder, llm);
+    let r = ingestor.add_episode("hello world", "text", None, Some("tenant-x")).await.unwrap();
+    let mut rows = store.conn.query(
+        "SELECT group_id FROM episodes WHERE id = ?1",
+        libsql::params![r.episode_id],
+    ).await.unwrap();
+    let row = rows.next().await.unwrap().unwrap();
+    let gid: String = row.get(0).unwrap();
+    assert_eq!(gid, "tenant-x");
+}
+
+#[tokio::test]
+async fn validation_rejects_bad_group_id() {
+    use rs_learn::graph::validation::{validate_group_id, validate_content};
+    assert!(validate_group_id("good_id-1.2").is_ok());
+    assert!(validate_group_id("bad id with spaces").is_err());
+    assert!(validate_group_id("").is_err());
+    let huge = "x".repeat(200_001);
+    assert!(validate_content(&huge).is_err());
+    assert!(validate_content("ok").is_ok());
+}
+
+#[tokio::test]
+async fn truncate_at_sentence_clamps_to_boundary() {
+    use rs_learn::graph::text::truncate_at_sentence;
+    let s = "First sentence. Second one here. Third extends past. Fourth never seen.";
+    let out = truncate_at_sentence(s, 35);
+    assert!(out.ends_with("."), "got: {out}");
+    assert!(out.len() <= 35, "len={}", out.len());
+    assert_eq!(truncate_at_sentence("short.", 100), "short.");
+}
+
+#[tokio::test]
+async fn metrics_counters_advance_after_ingest() {
+    use rs_learn::graph::ingest::Ingestor;
+    use rs_learn::graph::llm::LlmJson;
+    use rs_learn::embeddings::Embedder;
+    let (_dir, store) = open().await;
+    let embedder = Arc::new(Embedder::new());
+    let backend = StubBackend::new(vec![ json!({ "extracted_entities": [] }) ]);
+    let llm = Arc::new(LlmJson::with_limits(backend, 1, 5000, 1000));
+    let ingestor = Ingestor::new(store, embedder, llm);
+    let before = rs_learn::graph::metrics::snapshot();
+    let _ = ingestor.add_episode("hi", "text", None, None).await.unwrap();
+    let after = rs_learn::graph::metrics::snapshot();
+    let b = before["episodes_ingested"].as_u64().unwrap_or(0);
+    let a = after["episodes_ingested"].as_u64().unwrap_or(0);
+    assert!(a >= b + 1, "expected counter to increase: before={b} after={a}");
+}
+
+#[tokio::test]
+async fn clear_graph_per_group_isolates() {
+    use rs_learn::graph::ingest::Ingestor;
+    use rs_learn::graph::llm::LlmJson;
+    use rs_learn::embeddings::Embedder;
+    let (_dir, store) = open().await;
+    let embedder = Arc::new(Embedder::new());
+    let backend = StubBackend::new(vec![
+        json!({ "extracted_entities": [] }),
+        json!({ "extracted_entities": [] }),
+    ]);
+    let llm = Arc::new(LlmJson::with_limits(backend, 1, 5000, 1000));
+    let ingestor = Ingestor::new(store.clone(), embedder, llm);
+    ingestor.add_episode("a", "text", None, Some("ga")).await.unwrap();
+    ingestor.add_episode("b", "text", None, Some("gb")).await.unwrap();
+    ingestor.clear_graph(Some(&["ga".to_string()])).await.unwrap();
+    let mut rows = store.conn.query(
+        "SELECT group_id FROM episodes ORDER BY group_id", (),
+    ).await.unwrap();
+    let mut got = Vec::new();
+    while let Some(row) = rows.next().await.unwrap() {
+        got.push(row.get::<String>(0).unwrap_or_default());
+    }
+    assert_eq!(got, vec!["gb"]);
 }
