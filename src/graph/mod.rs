@@ -8,3 +8,4 @@ pub mod recipes;
 pub mod communities;
 pub mod sagas;
 pub mod http;
+pub mod mcp;
