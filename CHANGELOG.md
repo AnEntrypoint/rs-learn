@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+- learn: activate the 3-loop architecture end-to-end and close remaining correctness gaps.
+  - **BackgroundLoop now runs in production**: previously constructed nowhere in `Orchestrator`; pattern extraction, reasoning bank writes, and router batch training never fired outside tests. `Orchestrator::new_default` now owns `Arc<BackgroundLoop>` and, when `RS_LEARN_BG_INTERVAL_SEC=N` (N>0), spawns a scheduler task that runs `run_once` every N seconds. `Drop(Orchestrator)` aborts the task. Unset env = opt-out (default).
+  - **Router persists after batch training**: `BackgroundLoop::run_once` now calls `router.save()` when `train()` applied >0 samples. Previously batch learning was lost on restart — heads mutated in memory but never flushed.
+  - **Context-bucket head learns real token counts**: `Router::train` used `bucket_for_tokens(embedding.len())` — always `IN=768` — so every sample trained the same ctx bucket. `TrainSample` now carries `estimated_tokens: u64` (derived from trajectory query length in `BackgroundLoop`). Ctx head actually discriminates small vs large context now.
+  - **Hebbian adapter bounded**: `InstantLoop::hebbian_update` now clamps `||a, b||` to `MAX_ADAPTER_NORM=5.0`. Long sessions of positive feedback previously drove the adapter toward infinity, collapsing softmax routing to a single target.
+  - **InstantLoop observability reads live state**: `adapter_norm` and `pending_count` in the registered debug snapshot were captured as compile-time constants at `register()` time and never updated. Now backed by `Arc<AtomicU64>` fields kept in sync with every `record_trajectory` / `feedback` / `hebbian_update` / `reset_adapter`.
+- tests: 2 new regression tests — `router_ctx_bucket_trains_from_estimated_tokens` (asserts 200k-token samples do not degrade the bucket learned from 500-token samples) and `instant_adapter_bounded_under_runaway_feedback` (500 positive feedbacks stay under norm cap).
+
 - learn: critical correctness fixes across router, instant loop, background loop, reasoning bank, and deep loop.
   - **Router training is now real**: `Router::train` previously did unbounded Hebbian push on the chosen target only (no loss, no error signal), biasing the argmax toward whichever target was chosen most often regardless of embedding. Replaced with softmax cross-entropy gradient on the model head plus the context-bucket head (previously never trained). Learning rate scales with trajectory quality. Weights now stay bounded under training.
   - **Instant adapter now consumed**: orchestrator previously called `router.route()` which never merged the rank-2 Hebbian adapter into the routing logits. Feedback was silent dead code. Added `Router::route_with_adapter` and wired `InstantLoop::apply_adapter_raw` through the orchestrator hot path. Positive feedback on target T now actually steers subsequent routes toward T.

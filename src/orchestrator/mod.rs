@@ -6,6 +6,7 @@ use crate::backend::{self, AgentBackend};
 use crate::attention::Attention;
 use crate::cache::EmbeddingCache;
 use crate::embeddings::Embedder;
+use crate::learn::background::BackgroundLoop;
 use crate::learn::instant::{FeedbackPayload, InstantLoop};
 use crate::learn::reasoning_bank::ReasoningBank;
 use crate::memory::Memory;
@@ -20,8 +21,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
+use tokio::task::JoinHandle;
 
 pub struct Orchestrator {
     pub embedder: Arc<Embedder>,
@@ -37,6 +39,8 @@ pub struct Orchestrator {
     pub search_root: PathBuf,
     pub embed_cache: Option<Arc<EmbeddingCache>>,
     pub spine: Option<Arc<TrajectorySpine>>,
+    pub background: Option<Arc<BackgroundLoop>>,
+    bg_task: std::sync::Mutex<Option<JoinHandle<()>>>,
     queries: Arc<AtomicU64>,
     total_ms: Arc<AtomicU64>,
 }
@@ -68,6 +72,11 @@ impl Orchestrator {
             let mut il = instant.lock().await;
             il.spine = Some(s.clone());
         }
+        let background = BackgroundLoop::new(store.clone(), router.clone(), Some(acp.clone()), reasoning.clone(), Some(instant.clone()));
+        let bg_task = match std::env::var("RS_LEARN_BG_INTERVAL_SEC").ok().and_then(|s| s.parse::<u64>().ok()).filter(|&n| n > 0) {
+            Some(secs) => Some(tokio::spawn(background.clone().schedule(Duration::from_secs(secs)))),
+            None => None,
+        };
         let queries = Arc::new(AtomicU64::new(0));
         let total_ms = Arc::new(AtomicU64::new(0));
         let q2 = queries.clone(); let t2 = total_ms.clone();
@@ -84,7 +93,10 @@ impl Orchestrator {
         Ok(Self {
             embedder, memory, attention, router, instant, reasoning, acp, rs_search,
             sessions: Arc::new(RwLock::new(HashMap::new())),
-            store, search_root, embed_cache, spine, queries, total_ms,
+            store, search_root, embed_cache, spine,
+            background: Some(background),
+            bg_task: std::sync::Mutex::new(bg_task),
+            queries, total_ms,
         })
     }
 
@@ -194,5 +206,10 @@ impl Orchestrator {
 }
 
 impl Drop for Orchestrator {
-    fn drop(&mut self) { observability::unregister("orchestrator"); }
+    fn drop(&mut self) {
+        if let Ok(mut g) = self.bg_task.lock() {
+            if let Some(h) = g.take() { h.abort(); }
+        }
+        observability::unregister("orchestrator");
+    }
 }

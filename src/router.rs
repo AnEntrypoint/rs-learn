@@ -35,6 +35,7 @@ pub struct TrainSample {
     pub embedding: Vec<f32>,
     pub chosen_target: String,
     pub quality: f32,
+    pub estimated_tokens: u64,
 }
 
 struct Weights { v: Vec<f32>, u: Vec<f32>, uh: Vec<f32>, bh: Vec<f32>, bz: Vec<f32> }
@@ -207,8 +208,7 @@ impl Router {
                 for d in 0..DIM { self.heads.model[off + d] -= lr * err * f.h[d]; }
                 self.heads.model_b[k] -= lr * err;
             }
-            let ctx_target = bucket_for_tokens(tr.embedding.len() as u64) as usize;
-            let ctx_target = ctx_target.min(CTX_BUCKETS - 1);
+            let ctx_target = (bucket_for_tokens(tr.estimated_tokens) as usize).min(CTX_BUCKETS - 1);
             let ctx_probs = softmax(&f.cl);
             for k in 0..CTX_BUCKETS {
                 let err = ctx_probs[k] - if k == ctx_target { 1.0 } else { 0.0 };
@@ -320,7 +320,7 @@ mod tests {
         let emb: Vec<f32> = (0..IN).map(|i| ((i as f32) * 0.01).sin()).collect();
         let before = forward(&r.w, &r.heads, &emb, targets.len());
         let samples: Vec<TrainSample> = (0..200).map(|_| TrainSample {
-            embedding: emb.clone(), chosen_target: "b".into(), quality: 0.95,
+            embedding: emb.clone(), chosen_target: "b".into(), quality: 0.95, estimated_tokens: 500,
         }).collect();
         let applied = r.train(&samples).unwrap();
         assert_eq!(applied, 200);

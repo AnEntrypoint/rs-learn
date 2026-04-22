@@ -17,6 +17,7 @@ pub const RANK: usize = 2;
 pub const DECAY: f32 = 0.995;
 pub const LR0: f32 = 0.01;
 pub const FEEDBACK_WINDOW: Duration = Duration::from_secs(60);
+pub const MAX_ADAPTER_NORM: f32 = 5.0;
 
 pub type RequestId = String;
 
@@ -47,6 +48,8 @@ pub struct InstantLoop {
     n_targets: usize,
     lr: f32,
     feedback_count: Arc<AtomicU64>,
+    adapter_norm_milli: Arc<AtomicU64>,
+    pending_count: Arc<AtomicU64>,
 }
 
 fn now_ms() -> i64 {
@@ -64,6 +67,8 @@ impl InstantLoop {
             spine: None,
             targets, n_targets, lr: LR0,
             feedback_count: Arc::new(AtomicU64::new(0)),
+            adapter_norm_milli: Arc::new(AtomicU64::new(0)),
+            pending_count: Arc::new(AtomicU64::new(0)),
         };
         loop_.register_observability();
         loop_
@@ -71,13 +76,13 @@ impl InstantLoop {
 
     fn register_observability(&self) {
         let fc = self.feedback_count.clone();
-        let norm = self.adapter_norm();
-        let pending_count = self.pending.len();
+        let nm = self.adapter_norm_milli.clone();
+        let pc = self.pending_count.clone();
         observability::register("instant", move || {
             json!({
-                "adapter_norm": norm,
+                "adapter_norm": (nm.load(Ordering::Relaxed) as f64) / 1000.0,
                 "feedback_count": fc.load(Ordering::Relaxed),
-                "pending_count": pending_count,
+                "pending_count": pc.load(Ordering::Relaxed),
             })
         });
     }
@@ -120,6 +125,7 @@ impl InstantLoop {
         self.adapter_a.fill(0.0);
         self.adapter_b.fill(0.0);
         self.lr = LR0;
+        self.adapter_norm_milli.store(0, Ordering::Relaxed);
     }
 
     pub fn serialize_adapter(&self) -> Vec<u8> {
@@ -145,11 +151,20 @@ impl InstantLoop {
             self.adapter_b[r * self.n_targets + t_idx] += scale * pr;
         }
         self.lr *= DECAY;
+        let norm = self.adapter_norm();
+        if norm > MAX_ADAPTER_NORM {
+            let s = MAX_ADAPTER_NORM / norm;
+            for x in self.adapter_a.iter_mut() { *x *= s; }
+            for x in self.adapter_b.iter_mut() { *x *= s; }
+        }
+        let final_norm = self.adapter_norm();
+        self.adapter_norm_milli.store((final_norm * 1000.0) as u64, Ordering::Relaxed);
     }
 
     fn gc_pending(&mut self) {
         let now = Instant::now();
         self.pending.retain(|_, p| now.duration_since(p.created_at) < FEEDBACK_WINDOW);
+        self.pending_count.store(self.pending.len() as u64, Ordering::Relaxed);
     }
 
     pub async fn record_trajectory(&mut self, session_id: Option<String>, embedding: Vec<f32>, route_model: String, response: String) -> Result<RequestId> {
@@ -179,6 +194,7 @@ impl InstantLoop {
             session_id, embedding, route_model,
             created_at: Instant::now(), created_ms,
         });
+        self.pending_count.store(self.pending.len() as u64, Ordering::Relaxed);
         Ok(request_id)
     }
 
@@ -215,6 +231,7 @@ impl InstantLoop {
             }
         }
         self.pending.remove(request_id);
+        self.pending_count.store(self.pending.len() as u64, Ordering::Relaxed);
         Ok(())
     }
 }

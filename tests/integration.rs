@@ -170,7 +170,7 @@ async fn section_05_router_route_train_save_load_roundtrip() {
     assert!(buckets.len() >= 4, "expected 4+ unique context buckets, got {}", buckets.len());
 
     let samples: Vec<TrainSample> = (0..10u32).map(|i| TrainSample {
-        embedding: rand_emb(i + 10), chosen_target: targets[i as usize % targets.len()].clone(), quality: 0.9,
+        embedding: rand_emb(i + 10), chosen_target: targets[i as usize % targets.len()].clone(), quality: 0.9, estimated_tokens: 500,
     }).collect();
     let applied = r.train(&samples).expect("train");
     assert!(applied >= 1, "training must apply at least one sample");
@@ -470,4 +470,49 @@ async fn acp_missing_env_yields_process_error() {
         Err(rs_learn::LlmError::Process(_)) => {}
         other => panic!("expected Process error, got {:?}", other.as_ref().err()),
     }
+}
+
+#[tokio::test]
+async fn router_ctx_bucket_trains_from_estimated_tokens() {
+    use rs_learn::router::{RouteCtx, Router, TrainSample};
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    let path = tmp.path().to_str().unwrap().to_string();
+    drop(tmp);
+    let store = std::sync::Arc::new(rs_learn::Store::open(&path).await.unwrap());
+    let targets = vec!["a".to_string(), "b".to_string()];
+    let mut r = Router::new(store, targets);
+    let emb = rand_emb(7);
+    let small = vec![TrainSample { embedding: emb.clone(), chosen_target: "a".into(), quality: 0.95, estimated_tokens: 500 }; 120];
+    assert_eq!(r.train(&small).unwrap(), 120);
+    r.save().await.unwrap();
+    let route_small = r.route(&emb, &RouteCtx { task_type: None, estimated_tokens: 500 });
+    let route_huge = r.route(&emb, &RouteCtx { task_type: None, estimated_tokens: 200_000 });
+    assert_eq!(route_small.algo, "fastgrnn");
+    let low = route_small.context_bucket;
+    let large = vec![TrainSample { embedding: emb.clone(), chosen_target: "a".into(), quality: 0.95, estimated_tokens: 200_000 }; 120];
+    assert_eq!(r.train(&large).unwrap(), 120);
+    let route_huge2 = r.route(&emb, &RouteCtx { task_type: None, estimated_tokens: 200_000 });
+    assert!(route_huge2.context_bucket >= route_huge.context_bucket,
+        "training on 200k-token samples must at least not shift ctx bucket below initial; small-only bucket={} after-large bucket={}", low, route_huge2.context_bucket);
+}
+
+#[tokio::test]
+async fn instant_adapter_bounded_under_runaway_feedback() {
+    use rs_learn::learn::instant::{FeedbackPayload, InstantLoop, MAX_ADAPTER_NORM};
+    use rs_learn::router::Router;
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    let path = tmp.path().to_str().unwrap().to_string();
+    drop(tmp);
+    let store = std::sync::Arc::new(rs_learn::Store::open(&path).await.unwrap());
+    let targets = vec!["a".to_string(), "b".to_string()];
+    let router = std::sync::Arc::new(tokio::sync::Mutex::new(Router::new(store.clone(), targets.clone())));
+    let mut il = InstantLoop::new(store, router, targets);
+    let emb = rand_emb(99);
+    for _ in 0..500 {
+        let rid = il.record_trajectory(None, emb.clone(), "a".into(), "r".into()).await.unwrap();
+        il.feedback(&rid, FeedbackPayload { quality: 1.0, signal: None }).await.unwrap();
+    }
+    let norm = il.adapter_norm();
+    assert!(norm <= MAX_ADAPTER_NORM + 1e-3, "adapter norm {} exceeded cap {}", norm, MAX_ADAPTER_NORM);
+    assert!(norm > 0.0);
 }

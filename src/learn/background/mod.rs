@@ -113,16 +113,19 @@ impl BackgroundLoop {
         }
 
         let mut batch: Vec<TrainSample> = Vec::new();
-        for (i, (_, q, dec, _)) in meta.iter().enumerate() {
+        for (i, (_, q, dec, query)) in meta.iter().enumerate() {
             if *q < QUALITY_THRESHOLD as f64 { continue; }
             let model = serde_json::from_str::<serde_json::Value>(dec).ok()
                 .and_then(|v| v.get("model").and_then(|m| m.as_str()).map(String::from));
             let Some(chosen) = model else { continue };
-            batch.push(TrainSample { embedding: vectors[i].clone(), chosen_target: chosen, quality: *q as f32 });
+            let estimated_tokens = query.as_ref().map(|q| q.len() as u64).unwrap_or(0);
+            batch.push(TrainSample { embedding: vectors[i].clone(), chosen_target: chosen, quality: *q as f32, estimated_tokens });
         }
         let trained_on = if !batch.is_empty() {
             let mut r = self.router.lock().await;
-            r.train(&batch)?
+            let n = r.train(&batch)?;
+            if n > 0 { r.save().await?; }
+            n
         } else { 0 };
 
         let dur = t0.elapsed().as_millis();
