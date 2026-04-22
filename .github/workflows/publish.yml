@@ -23,6 +23,11 @@ jobs:
       - name: Install Rust
         run: rustup toolchain install stable --profile minimal
 
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Resolve next version
         id: ver
         shell: bash
@@ -55,8 +60,6 @@ jobs:
           set -euo pipefail
           sed -i 's/^version = "${{ steps.ver.outputs.current }}"$/version = "${{ steps.ver.outputs.next }}"/' Cargo.toml
           cargo update -p rs-learn --precise ${{ steps.ver.outputs.next }} || true
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Cargo.toml Cargo.lock
           git commit -m "chore: bump version to ${{ steps.ver.outputs.next }}"
           git push origin main
@@ -80,12 +83,18 @@ jobs:
 
       - name: Publish to crates.io
         if: steps.tag.outputs.exists == 'false'
+        continue-on-error: true
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         shell: bash
         run: |
           if [[ -z "${CARGO_REGISTRY_TOKEN:-}" ]]; then
             echo "CARGO_REGISTRY_TOKEN not set; skipping crates.io publish"
+            exit 0
+          fi
+          if grep -qE '^\s*[a-zA-Z0-9_-]+\s*=\s*\{[^}]*\bgit\s*=' Cargo.toml; then
+            echo "Cargo.toml has git dependency; cargo publish will reject. Skipping."
+            grep -E '^\s*[a-zA-Z0-9_-]+\s*=\s*\{[^}]*\bgit\s*=' Cargo.toml
             exit 0
           fi
           cargo publish --token "${CARGO_REGISTRY_TOKEN}"
