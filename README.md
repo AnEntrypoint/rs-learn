@@ -116,6 +116,7 @@ curl http://127.0.0.1:7878/debug/store        # store table counts
 curl http://127.0.0.1:7878/debug/attention    # attention head stats
 curl http://127.0.0.1:7878/debug/reasoning    # reasoning bank
 curl http://127.0.0.1:7878/debug/federated    # federated pool
+curl http://127.0.0.1:7878/debug/graph        # graph ingest/search/llm counters
 ```
 
 Every subsystem (store, memory, router, attention, instant/bg/deep loops, reasoning-bank, federated, acp, orchestrator, rs-search) registers into the debug registry on construction.
