@@ -35,16 +35,22 @@ jobs:
           set -euo pipefail
           current=$(awk -F '"' '/^version *= *"/{print $2; exit}' Cargo.toml)
           echo "current=$current"
-          published=$(curl -s https://crates.io/api/v1/crates/rs-learn | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("crate",{}).get("max_version","") if "crate" in d else "")' || true)
+          crates_ver=$(curl -s https://crates.io/api/v1/crates/rs-learn | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("crate",{}).get("max_version","") if "crate" in d else "")' || true)
+          echo "crates_ver=$crates_ver"
+          tag_ver=$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -1)
+          echo "tag_ver=$tag_ver"
+          published="$tag_ver"
+          if [[ -n "$crates_ver" ]]; then
+            if [[ -z "$published" ]] || printf '%s\n%s\n' "$published" "$crates_ver" | sort -V -C; then
+              published="$crates_ver"
+            fi
+          fi
           echo "published=$published"
           next="$current"
-          if [[ -n "$published" && "$current" == "$published" ]]; then
-            IFS=. read -r major minor patch <<<"$current"
-            next="${major}.${minor}.$((patch+1))"
-          fi
           if [[ -n "$published" ]]; then
-            if printf '%s\n%s\n' "$next" "$published" | sort -V -C; then
-              IFS=. read -r major minor patch <<<"$published"
+            highest=$(printf '%s\n%s\n' "$published" "$current" | sort -V | tail -1)
+            if [[ "$current" != "$highest" || "$current" == "$published" ]]; then
+              IFS=. read -r major minor patch <<<"$highest"
               next="${major}.${minor}.$((patch+1))"
             fi
           fi
