@@ -28,7 +28,7 @@ pub struct HttpState {
 impl HttpState {
     pub fn new(store: Arc<Store>, embedder: Arc<Embedder>, llm: Arc<LlmJson>) -> Self {
         let ingestor = Ingestor::new(store.clone(), embedder.clone(), llm.clone());
-        let searcher = Arc::new(Searcher::new(store.clone(), embedder.clone()));
+        let searcher = Arc::new(Searcher::with_llm(store.clone(), embedder.clone(), llm.clone()));
         Self { store, embedder, ingestor, searcher }
     }
 

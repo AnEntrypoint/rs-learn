@@ -25,7 +25,7 @@ pub struct McpServer {
 impl McpServer {
     pub fn new(store: Arc<Store>, embedder: Arc<Embedder>, llm: Arc<LlmJson>) -> Arc<Self> {
         let ingestor = Ingestor::new(store.clone(), embedder.clone(), llm.clone());
-        let searcher = Arc::new(Searcher::new(store.clone(), embedder.clone()));
+        let searcher = Arc::new(Searcher::with_llm(store.clone(), embedder.clone(), llm.clone()));
         let community_ops = Arc::new(CommunityOps::new(store.clone(), embedder.clone(), llm.clone()));
         let saga_ops = Arc::new(SagaOps::new(store.clone(), llm.clone()));
         Arc::new(Self { store, embedder, ingestor, searcher, community_ops, saga_ops, llm })
@@ -90,6 +90,24 @@ impl McpServer {
                     "edges": r.edge_count,
                     "expired_edge_ids": r.expired_edge_ids,
                 }))
+            }
+            "add_episode_bulk" => {
+                let arr = args.get("episodes").and_then(|a| a.as_array())
+                    .ok_or_else(|| anyhow::anyhow!("missing episodes[] arg"))?;
+                let items: Vec<super::ingest::BulkEpisode> = arr.iter()
+                    .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                    .collect();
+                let rs = self.ingestor.add_episode_bulk(items).await?;
+                Ok(json!({
+                    "count": rs.len(),
+                    "episode_ids": rs.iter().map(|r| r.episode_id.clone()).collect::<Vec<_>>(),
+                }))
+            }
+            "get_episodes" => {
+                let group_id = args.get("group_id").and_then(|s| s.as_str()).map(String::from);
+                let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
+                let eps = self.ingestor.get_episodes(group_id.as_deref(), limit).await?;
+                Ok(json!({ "episodes": eps }))
             }
             "add_triplet" => {
                 let src_id = str_arg(&args, "src_id")?;
@@ -209,6 +227,12 @@ fn tool_list() -> Vec<Value> {
         json!({"name":"add_episode","description":"Ingest an episode","inputSchema": schema(json!({
             "content": s(), "source": s(), "reference_time": s()
         }), vec!["content"])}),
+        json!({"name":"add_episode_bulk","description":"Ingest many episodes","inputSchema": schema(json!({
+            "episodes": {"type":"array","items":{"type":"object"}}
+        }), vec!["episodes"])}),
+        json!({"name":"get_episodes","description":"List recent episodes","inputSchema": schema(json!({
+            "group_id": s(), "limit": num()
+        }), vec![])}),
         json!({"name":"add_triplet","inputSchema": schema(json!({
             "src_id": s(), "src_name": s(), "dst_id": s(), "dst_name": s(),
             "relation": s(), "fact": s()

@@ -78,8 +78,8 @@ async fn cmd_search(args: &[String]) -> anyhow::Result<()> {
     };
     let scope = flag(args, "--scope").unwrap_or_else(|| "nodes".into());
     let limit: usize = flag(args, "--limit").and_then(|s| s.parse().ok()).unwrap_or(10);
-    let (store, embedder, _llm) = open_graph().await?;
-    let searcher = Searcher::new(store, embedder);
+    let (store, embedder, llm) = open_graph().await?;
+    let searcher = Searcher::with_llm(store, embedder, llm);
     let cfg = SearchConfig { limit, ..Default::default() };
     let hits = match scope.as_str() {
         "nodes" => searcher.search_nodes(query, &cfg).await?,

@@ -1,9 +1,38 @@
+use async_trait::async_trait;
+use rs_learn::backend::AgentBackend;
+use rs_learn::embeddings::Embedder;
+use rs_learn::errors::{LlmError, Result as LlmResult};
+use rs_learn::graph::ingest::Ingestor;
+use rs_learn::graph::llm::LlmJson;
 use rs_learn::graph::recipes;
-use rs_learn::graph::search::{Reranker, SearchConfig};
+use rs_learn::graph::search::{Reranker, SearchConfig, Searcher};
 use rs_learn::store::types::{EdgeRow, EpisodeRow, NodeRow};
 use rs_learn::store::{now_ms, Store};
-use std::sync::Arc;
+use serde_json::{json, Value};
+use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
+
+struct StubBackend {
+    responses: Mutex<Vec<Value>>,
+}
+
+impl StubBackend {
+    fn new(responses: Vec<Value>) -> Arc<Self> {
+        Arc::new(Self { responses: Mutex::new(responses) })
+    }
+}
+
+#[async_trait]
+impl AgentBackend for StubBackend {
+    async fn generate(&self, _system: &str, _user: &str, _timeout_ms: u64) -> LlmResult<Value> {
+        let mut g = self.responses.lock().unwrap();
+        if g.is_empty() {
+            return Err(LlmError::Validation("stub exhausted".into()));
+        }
+        Ok(g.remove(0))
+    }
+    fn name(&self) -> &'static str { "stub" }
+}
 
 async fn open() -> (tempfile::TempDir, Arc<Store>) {
     let dir = tempdir().unwrap();
@@ -105,6 +134,81 @@ async fn search_config_defaults_sensible() {
     assert_eq!(c.reranker, Reranker::Rrf);
     assert!(c.rrf_k > 0.0);
     assert!(c.mmr_lambda > 0.0 && c.mmr_lambda <= 1.0);
+}
+
+#[tokio::test]
+async fn ingest_with_stub_llm_persists_nodes_edges_and_mentions() {
+    let (_dir, store) = open().await;
+    let embedder = Arc::new(Embedder::new());
+    // Response sequence for one add_episode: extract_entities -> dedup_entities (skipped
+    // if no existing) -> extract_edges -> resolve_temporal (skipped: no existing edges).
+    let backend = StubBackend::new(vec![
+        json!({ "extracted_entities": [
+            { "name": "Alice", "entity_type_id": 1 },
+            { "name": "Acme",  "entity_type_id": 2 }
+        ]}),
+        json!({ "edges": [
+            { "source_entity_name": "Alice", "target_entity_name": "Acme",
+              "relation_type": "WORKS_AT", "fact": "Alice works at Acme",
+              "valid_at": null, "invalid_at": null }
+        ]}),
+    ]);
+    let llm = Arc::new(LlmJson::with_limits(backend, 1, 5000, 1000));
+    let ingestor = Ingestor::new(store.clone(), embedder, llm);
+    let r = ingestor.add_episode("Alice works at Acme Corp.", "text", None).await.unwrap();
+    assert_eq!(r.node_count, 2, "two entities resolved");
+    assert_eq!(r.edge_count, 1, "one fact triple extracted");
+    // Nodes + fact edge + 2 MENTIONS edges.
+    assert_eq!(store.count_rows("nodes").await, 2);
+    assert_eq!(store.count_rows("edges").await, 3);
+    assert_eq!(store.count_rows("episodes").await, 1);
+}
+
+#[tokio::test]
+async fn bulk_ingest_and_get_episodes_roundtrip() {
+    let (_dir, store) = open().await;
+    let embedder = Arc::new(Embedder::new());
+    let backend = StubBackend::new(vec![
+        json!({ "extracted_entities": [] }),
+        json!({ "extracted_entities": [] }),
+    ]);
+    let llm = Arc::new(LlmJson::with_limits(backend, 1, 5000, 1000));
+    let ingestor = Ingestor::new(store.clone(), embedder, llm);
+    let items = vec![
+        rs_learn::graph::ingest::BulkEpisode { content: "first".into(), source: "text".into(), reference_time: None },
+        rs_learn::graph::ingest::BulkEpisode { content: "second".into(), source: "text".into(), reference_time: None },
+    ];
+    let rs = ingestor.add_episode_bulk(items).await.unwrap();
+    assert_eq!(rs.len(), 2);
+    let eps = ingestor.get_episodes(None, 100).await.unwrap();
+    assert_eq!(eps.len(), 2);
+}
+
+#[tokio::test]
+async fn search_with_stub_cross_encoder_reorders_hits() {
+    let (_dir, store) = open().await;
+    // Seed two nodes with identical embeddings so vector rank is tied and the
+    // cross-encoder score decides final order.
+    store.insert_node(&NodeRow {
+        id: "a".into(), name: "alpha".into(), r#type: None, summary: Some("".into()),
+        embedding: Some(vec![0.1; 768]), level: Some(0), created_at: Some(now_ms()),
+    }).await.unwrap();
+    store.insert_node(&NodeRow {
+        id: "b".into(), name: "beta".into(), r#type: None, summary: Some("".into()),
+        embedding: Some(vec![0.1; 768]), level: Some(0), created_at: Some(now_ms()),
+    }).await.unwrap();
+    let embedder = Arc::new(Embedder::new());
+    let backend = StubBackend::new(vec![
+        // cross-encoder scores: prefer idx 1 (beta) over idx 0 (alpha)
+        json!({ "scores": [ { "idx": 0, "score": 0.1 }, { "idx": 1, "score": 0.9 } ] }),
+    ]);
+    let llm = Arc::new(LlmJson::with_limits(backend, 1, 5000, 1000));
+    let searcher = Searcher::with_llm(store, embedder, llm);
+    let cfg = SearchConfig { limit: 2, reranker: Reranker::CrossEncoder, ..Default::default() };
+    let hits = searcher.search_nodes("alpha", &cfg).await.unwrap();
+    assert!(!hits.is_empty());
+    // beta should come first after LLM scoring
+    assert_eq!(hits[0].id, "b", "cross-encoder should put beta first, got {:?}", hits.iter().map(|h| h.id.clone()).collect::<Vec<_>>());
 }
 
 #[tokio::test]

@@ -11,6 +11,17 @@ use super::edges::{EdgeOps, ResolvedEdge};
 use super::entities::{Entity, EntityOps};
 use super::llm::LlmJson;
 
+#[derive(serde::Deserialize)]
+pub struct BulkEpisode {
+    pub content: String,
+    #[serde(default = "default_source")]
+    pub source: String,
+    #[serde(default)]
+    pub reference_time: Option<String>,
+}
+
+fn default_source() -> String { "message".into() }
+
 pub struct IngestResult {
     pub episode_id: String,
     pub node_count: usize,
@@ -174,6 +185,38 @@ impl Ingestor {
         };
         self.edge_ops.upsert_edge(&resolved).await?;
         Ok(resolved.id)
+    }
+
+    pub async fn add_episode_bulk(&self, items: Vec<BulkEpisode>) -> Result<Vec<IngestResult>> {
+        let mut out = Vec::with_capacity(items.len());
+        for it in items {
+            let r = self.add_episode(&it.content, &it.source, it.reference_time.as_deref()).await?;
+            out.push(r);
+        }
+        Ok(out)
+    }
+
+    pub async fn get_episodes(&self, group_id: Option<&str>, limit: usize) -> Result<Vec<serde_json::Value>> {
+        let mut rows = match group_id {
+            Some(gid) => self.store.conn.query(
+                "SELECT id, content, source, created_at FROM episodes WHERE group_id = ?1 ORDER BY created_at DESC LIMIT ?2",
+                libsql::params![gid.to_string(), limit as i64],
+            ).await?,
+            None => self.store.conn.query(
+                "SELECT id, content, source, created_at FROM episodes ORDER BY created_at DESC LIMIT ?1",
+                libsql::params![limit as i64],
+            ).await?,
+        };
+        let mut out = Vec::new();
+        while let Some(row) = rows.next().await? {
+            out.push(json!({
+                "id": row.get::<String>(0).unwrap_or_default(),
+                "content": row.get::<String>(1).unwrap_or_default(),
+                "source": row.get::<String>(2).ok(),
+                "created_at": row.get::<i64>(3).ok(),
+            }));
+        }
+        Ok(out)
     }
 
     pub async fn clear_graph(&self) -> Result<()> {

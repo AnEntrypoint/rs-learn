@@ -3,8 +3,11 @@ use crate::store::Store;
 use anyhow::Result;
 use libsql::Value as LV;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+use super::llm::LlmJson;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum Reranker {
@@ -48,11 +51,16 @@ pub struct SearchHit {
 pub struct Searcher {
     pub store: Arc<Store>,
     pub embedder: Arc<Embedder>,
+    pub llm: Option<Arc<LlmJson>>,
 }
 
 impl Searcher {
     pub fn new(store: Arc<Store>, embedder: Arc<Embedder>) -> Self {
-        Self { store, embedder }
+        Self { store, embedder, llm: None }
+    }
+
+    pub fn with_llm(store: Arc<Store>, embedder: Arc<Embedder>, llm: Arc<LlmJson>) -> Self {
+        Self { store, embedder, llm: Some(llm) }
     }
 
     pub async fn search_nodes(&self, query: &str, cfg: &SearchConfig) -> Result<Vec<SearchHit>> {
@@ -95,7 +103,7 @@ impl Searcher {
             Reranker::Mmr => Ok(mmr(hits, cfg.limit, cfg.mmr_lambda, &emb)),
             Reranker::NodeDistance => Ok(self.node_distance_rerank(hits, cfg).await),
             Reranker::EpisodeMentions => Ok(self.episode_mentions_rerank(hits, cfg.limit).await),
-            Reranker::CrossEncoder => Ok(hits.into_iter().take(cfg.limit).collect()),
+            Reranker::CrossEncoder => Ok(self.cross_encoder_rerank(query, hits, cfg.limit).await),
         }
     }
 
@@ -145,6 +153,53 @@ impl Searcher {
             })
             .collect();
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        scored.into_iter().take(limit).map(|(h, _)| h).collect()
+    }
+
+    async fn cross_encoder_rerank(&self, query: &str, hits: Vec<SearchHit>, limit: usize) -> Vec<SearchHit> {
+        let Some(llm) = self.llm.clone() else {
+            return hits.into_iter().take(limit).collect();
+        };
+        if hits.is_empty() { return vec![]; }
+        let items: Vec<serde_json::Value> = hits.iter().enumerate().map(|(i, h)| {
+            let text = h.row.get("name").and_then(|v| v.as_str())
+                .or_else(|| h.row.get("fact").and_then(|v| v.as_str()))
+                .or_else(|| h.row.get("content").and_then(|v| v.as_str()))
+                .or_else(|| h.row.get("summary").and_then(|v| v.as_str()))
+                .unwrap_or("");
+            json!({ "idx": i, "text": text })
+        }).collect();
+        let sys = "You are a relevance ranking assistant. Score each CANDIDATE for relevance to the QUERY on a 0.0..1.0 scale. Higher = more relevant. Return only JSON.";
+        let user = format!(
+            "<QUERY>\n{query}\n</QUERY>\n<CANDIDATES>\n{items}\n</CANDIDATES>\n\nReturn JSON: {{\"scores\":[{{\"idx\":0,\"score\":0.0}}]}}",
+            query = query,
+            items = serde_json::to_string_pretty(&items).unwrap_or_default(),
+        );
+        let v = llm.call(sys, &user, |_| Ok(())).await.ok();
+        let mut scored: Vec<(SearchHit, f32)> = hits
+            .into_iter()
+            .enumerate()
+            .map(|(i, h)| (h, i as f32))
+            .collect();
+        if let Some(v) = v {
+            if let Some(arr) = v.get("scores").and_then(|a| a.as_array()) {
+                let mut map: HashMap<usize, f32> = HashMap::new();
+                for item in arr {
+                    let idx = item.get("idx").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
+                    let score = item.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0) as f32;
+                    map.insert(idx, score);
+                }
+                scored = scored
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, (h, _))| {
+                        let s = map.get(&i).copied().unwrap_or(0.0);
+                        (h, s)
+                    })
+                    .collect();
+                scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            }
+        }
         scored.into_iter().take(limit).map(|(h, _)| h).collect()
     }
 
