@@ -3,38 +3,46 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+
   <meta name="theme-color" content="#247420" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#3A9A34" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
+
   <title>rs-learn · continual-learning orchestrator · 247420</title>
-  <meta name="description" content="rs-learn: pure-rust continual-learning orchestrator. persistent memory, adaptive routing, three learning loops around any ACP stdio agent.">
+  <meta name="description" content="continual-learning orchestrator around any acp stdio agent. persistent memory, adaptive routing, three learning loops. pure rust, single binary.">
   <meta name="author" content="247420 / AnEntrypoint">
-  <meta name="keywords" content="rs-learn, continual learning, ACP, agent client protocol, rust, 247420, anentrypoint">
+  <meta name="keywords" content="247420, anentrypoint, rs-learn, continual learning, acp, agent client protocol, rust">
   <link rel="canonical" href="https://anentrypoint.github.io/rs-learn/">
   <meta name="robots" content="index, follow">
+
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+
   <meta property="og:type" content="website">
   <meta property="og:title" content="rs-learn · continual-learning orchestrator">
-  <meta property="og:description" content="persistent memory, adaptive routing, three learning loops. wraps any ACP stdio agent. pure rust. single binary.">
+  <meta property="og:description" content="persistent memory, adaptive routing, three learning loops. wraps any acp stdio agent. pure rust.">
   <meta property="og:url" content="https://anentrypoint.github.io/rs-learn/">
   <meta property="og:site_name" content="247420 / rs-learn">
   <meta property="og:image" content="https://anentrypoint.github.io/rs-learn/og-card.svg">
   <meta property="og:image:alt" content="rs-learn dateline card">
   <meta property="og:locale" content="en_US">
+
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="rs-learn · continual-learning orchestrator">
-  <meta name="twitter:description" content="persistent memory, adaptive routing, three learning loops. wraps any ACP stdio agent. pure rust.">
+  <meta name="twitter:description" content="persistent memory, adaptive routing, three learning loops. wraps any acp stdio agent. pure rust.">
   <meta name="twitter:image" content="https://anentrypoint.github.io/rs-learn/og-card.svg">
   <meta name="twitter:site" content="@AnEntrypoint">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/rippleui@1.12.1/dist/css/styles.css">
-  <link rel="stylesheet" href="./style.css">
+
+  <link rel="stylesheet" href="./vendor/rippleui-1.12.1.css">
+  <link rel="stylesheet" href="./colors_and_type.css">
+  <link rel="stylesheet" href="./app-shell.css">
+
   <script type="importmap">
   {
     "imports": {
-      "webjsx": "https://cdn.jsdelivr.net/npm/webjsx@0.0.73/dist/index.js",
-      "webjsx/jsx-runtime": "https://cdn.jsdelivr.net/npm/webjsx@0.0.73/dist/jsx-runtime.js"
+      "webjsx":             "./vendor/webjsx/index.js",
+      "webjsx/":            "./vendor/webjsx/",
+      "webjsx/jsx-runtime": "./vendor/webjsx/jsx-runtime.js",
+      "webjsx-router":      "./vendor/webjsx-router.js"
     }
   }
   </script>
