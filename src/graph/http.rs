@@ -13,7 +13,7 @@ use tower_http::cors::CorsLayer;
 
 use super::ingest::Ingestor;
 use super::llm::LlmJson;
-use super::search::{SearchConfig, Searcher};
+use super::search::{SearchConfig, SearchFilters, Searcher};
 use super::time::parse_iso_ms;
 
 const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
@@ -97,14 +97,20 @@ struct MessagesBody {
     reference_time: Option<String>,
     #[serde(default)]
     group_id: Option<String>,
+    #[serde(default)]
+    entity_types: Option<String>,
+    #[serde(default)]
+    edge_types: Option<Value>,
 }
 
 async fn post_messages(State(s): State<HttpState>, Json(body): Json<MessagesBody>) -> Result<Json<Value>, Problem> {
     let source = body.source.unwrap_or_else(|| "message".into());
     if let Some(g) = &body.group_id { super::validation::validate_group_id(g).map_err(|e| bad(e.to_string()))?; }
     super::validation::validate_content(&body.content).map_err(|e| bad(e.to_string()))?;
-    let res = s.ingestor.add_episode(&body.content, &source, body.reference_time.as_deref(), body.group_id.as_deref())
-        .await.map_err(|e| ise(e.to_string()))?;
+    let res = s.ingestor.add_episode_with(
+        &body.content, &source, body.reference_time.as_deref(), body.group_id.as_deref(),
+        body.entity_types.as_deref(), body.edge_types.as_ref(),
+    ).await.map_err(|e| ise(e.to_string()))?;
     Ok(Json(json!({
         "episode_id": res.episode_id,
         "nodes": res.node_count,
@@ -270,6 +276,8 @@ struct ScopeBody {
     use_fts: Option<bool>,
     #[serde(default)]
     mmr_lambda: Option<f32>,
+    #[serde(default)]
+    filters: Option<SearchFilters>,
 }
 
 fn parse_reranker(s: &str) -> Result<super::search::Reranker, String> {
@@ -289,6 +297,7 @@ fn scope_body_to_cfg(sb: &ScopeBody, default_limit: usize) -> Result<SearchConfi
     if let Some(v) = sb.use_vector { c.use_vector = v; }
     if let Some(v) = sb.use_fts { c.use_fts = v; }
     if let Some(v) = sb.mmr_lambda { c.mmr_lambda = v; }
+    if let Some(f) = sb.filters.clone() { c.filters = f; }
     Ok(c)
 }
 
@@ -341,10 +350,18 @@ async fn post_get_memory(State(s): State<HttpState>, Json(body): Json<SearchBody
     Ok(Json(json!({ "nodes": nodes, "facts": facts })))
 }
 
-async fn post_build_communities(State(s): State<HttpState>) -> Result<Json<Value>, Problem> {
+#[derive(Deserialize, Default)]
+struct BuildCommunitiesBody {
+    #[serde(default)]
+    force: bool,
+}
+
+async fn post_build_communities(State(s): State<HttpState>, body: Option<Json<BuildCommunitiesBody>>) -> Result<Json<Value>, Problem> {
     use super::communities::CommunityOps;
+    let force = body.map(|b| b.0.force).unwrap_or(false);
     let llm = s.ingestor.llm.clone();
     let ops = CommunityOps::new(s.store.clone(), s.embedder.clone(), llm);
-    let r = ops.build_communities().await.map_err(|e| ise(e.to_string()))?;
+    let r = if force { ops.build_communities().await } else { ops.build_communities_if_dirty().await }
+        .map_err(|e| ise(e.to_string()))?;
     Ok(Json(json!({ "communities": r.community_count, "members": r.member_count })))
 }

@@ -440,3 +440,130 @@ async fn clear_graph_per_group_isolates() {
     }
     assert_eq!(got, vec!["gb"]);
 }
+
+#[tokio::test]
+async fn search_filters_by_node_label_and_date_range() {
+    use rs_learn::graph::search::{SearchConfig, SearchFilters, Searcher, Reranker};
+    let (_dir, store) = open().await;
+    let now = now_ms();
+    for (i, ty, when) in [(0, "Person", now - 10_000), (1, "Place", now), (2, "Person", now + 10_000)] {
+        let n = NodeRow {
+            id: format!("nf{i}"), name: format!("alpha{i}"),
+            r#type: Some(ty.into()), summary: Some("".into()),
+            embedding: Some(vec![0.1; 768]), level: Some(0),
+            created_at: Some(when), group_id: None,
+        };
+        store.insert_node(&n).await.unwrap();
+    }
+    let embedder = Arc::new(Embedder::new());
+    let searcher = Searcher::new(store, embedder);
+    let cfg = SearchConfig {
+        limit: 10, reranker: Reranker::Rrf,
+        filters: SearchFilters { node_labels: vec!["Person".into()], ..Default::default() },
+        ..Default::default()
+    };
+    let hits = searcher.search_nodes("alpha", &cfg).await.unwrap();
+    assert!(hits.iter().all(|h| h.row.get("type").and_then(|v| v.as_str()) == Some("Person")), "label filter missed: {hits:?}");
+    assert!(!hits.is_empty());
+    let cfg2 = SearchConfig {
+        limit: 10, reranker: Reranker::Rrf,
+        filters: SearchFilters { created_at_min: Some(now - 1000), created_at_max: Some(now + 1000), ..Default::default() },
+        ..Default::default()
+    };
+    let hits2 = searcher.search_nodes("alpha", &cfg2).await.unwrap();
+    assert_eq!(hits2.len(), 1, "date filter mismatch: {hits2:?}");
+    assert_eq!(hits2[0].id, "nf1");
+}
+
+#[tokio::test]
+async fn custom_entity_types_reach_prompt() {
+    use rs_learn::graph::entities::EntityOps;
+    use rs_learn::embeddings::Embedder;
+    use rs_learn::graph::llm::LlmJson;
+    let (_dir, store) = open().await;
+    let embedder = Arc::new(Embedder::new());
+    let captured: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+
+    struct CapBackend { hits: Arc<Mutex<Vec<String>>>, responses: Mutex<Vec<Value>> }
+    #[async_trait]
+    impl AgentBackend for CapBackend {
+        async fn generate(&self, _sys: &str, user: &str, _to: u64) -> LlmResult<Value> {
+            self.hits.lock().unwrap().push(user.to_string());
+            let mut g = self.responses.lock().unwrap();
+            if g.is_empty() { return Err(LlmError::Validation("exhausted".into())); }
+            Ok(g.remove(0))
+        }
+        fn name(&self) -> &'static str { "cap" }
+    }
+
+    let backend = Arc::new(CapBackend {
+        hits: captured.clone(),
+        responses: Mutex::new(vec![ json!({"extracted_entities": []}) ]),
+    });
+    let llm = Arc::new(LlmJson::with_limits(backend, 1, 5000, 1000));
+    let ops = EntityOps::with_types(store, embedder, llm, Some(r#"[{"entity_type_id":0,"name":"Gadget"}]"#.to_string()));
+    let _ = ops.extract_entities("text", "the widget broke", &json!([])).await;
+    let hits = captured.lock().unwrap().clone();
+    assert!(hits.iter().any(|h| h.contains("Gadget")), "custom entity type not in prompt: {hits:?}");
+}
+
+#[tokio::test]
+async fn communities_skip_when_not_dirty() {
+    use rs_learn::graph::communities::CommunityOps;
+    let (_dir, store) = open().await;
+    let embedder = Arc::new(Embedder::new());
+    let backend = StubBackend::new(vec![json!({"summary":"s"}); 10]);
+    let llm = Arc::new(LlmJson::with_limits(backend, 1, 5000, 1000));
+    let ops = CommunityOps::new(store.clone(), embedder, llm);
+    let r1 = ops.build_communities_if_dirty().await.unwrap();
+    assert_eq!(r1.community_count, 0);
+    let now = now_ms();
+    for i in 0..3 {
+        let n = NodeRow {
+            id: format!("cd{i}"), name: format!("n{i}"),
+            r#type: Some("Entity".into()), summary: Some("".into()),
+            embedding: Some(vec![0.1; 768]), level: Some(0),
+            created_at: Some(now), group_id: None,
+        };
+        store.insert_node(&n).await.unwrap();
+        let e = EdgeRow {
+            id: format!("ce{i}"), src: format!("cd{i}"), dst: format!("cd{}", (i+1)%3),
+            relation: Some("R".into()), fact: Some("".into()),
+            embedding: None, weight: Some(1.0),
+            created_at: Some(now), valid_at: Some(now), invalid_at: None,
+            group_id: None,
+        };
+        store.insert_edge(&e).await.unwrap();
+    }
+    let r2 = ops.build_communities_if_dirty().await.unwrap();
+    assert!(r2.community_count >= 1, "dirty build should produce communities: {r2:?}", r2 = (r2.community_count, r2.member_count));
+    let r3 = ops.build_communities_if_dirty().await.unwrap();
+    assert_eq!(r3.community_count, 0, "second call should short-circuit");
+}
+
+#[tokio::test]
+async fn saga_auto_summary_fires_at_threshold() {
+    use rs_learn::graph::sagas::SagaOps;
+    let (_dir, store) = open().await;
+    let backend = StubBackend::new(vec![json!({"summary":"auto-generated"}); 5]);
+    let llm = Arc::new(LlmJson::with_limits(backend, 1, 5000, 1000));
+    let ops = Arc::new(SagaOps::with_threshold(store.clone(), llm, 2));
+    let saga_id = ops.create_saga("test-saga").await.unwrap();
+    for i in 0..2 {
+        let ep = EpisodeRow {
+            id: format!("ep-sa-{i}"), content: format!("e{i}").into(),
+            source: Some("text".into()), group_id: None,
+            created_at: Some(now_ms()), valid_at: Some(now_ms()), invalid_at: None,
+        };
+        store.insert_episode(&ep).await.unwrap();
+        ops.add_episode_to_saga(&saga_id, &ep.id).await.unwrap();
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let mut rows = store.conn.query(
+        "SELECT summary FROM sagas WHERE id = ?1",
+        libsql::params![saga_id],
+    ).await.unwrap();
+    let row = rows.next().await.unwrap().unwrap();
+    let summary: String = row.get(0).unwrap_or_default();
+    assert_eq!(summary, "auto-generated", "expected auto-summary, got {summary:?}");
+}

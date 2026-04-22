@@ -43,8 +43,18 @@ pub struct Ingestor {
 
 impl Ingestor {
     pub fn new(store: Arc<Store>, embedder: Arc<Embedder>, llm: Arc<LlmJson>) -> Arc<Self> {
-        let entity_ops = Arc::new(EntityOps::new(store.clone(), embedder.clone(), llm.clone()));
-        let edge_ops = Arc::new(EdgeOps::new(store.clone(), embedder.clone(), llm.clone()));
+        Self::with_types(store, embedder, llm, None, None)
+    }
+
+    pub fn with_types(
+        store: Arc<Store>,
+        embedder: Arc<Embedder>,
+        llm: Arc<LlmJson>,
+        entity_types: Option<String>,
+        edge_types: Option<Value>,
+    ) -> Arc<Self> {
+        let entity_ops = Arc::new(EntityOps::with_types(store.clone(), embedder.clone(), llm.clone(), entity_types));
+        let edge_ops = Arc::new(EdgeOps::with_types(store.clone(), embedder.clone(), llm.clone(), edge_types));
         Arc::new(Self {
             store,
             embedder,
@@ -61,6 +71,18 @@ impl Ingestor {
         source: &str,
         reference_time: Option<&str>,
         group_id: Option<&str>,
+    ) -> Result<IngestResult> {
+        self.add_episode_with(content, source, reference_time, group_id, None, None).await
+    }
+
+    pub async fn add_episode_with(
+        &self,
+        content: &str,
+        source: &str,
+        reference_time: Option<&str>,
+        group_id: Option<&str>,
+        entity_types_override: Option<&str>,
+        edge_types_override: Option<&Value>,
     ) -> Result<IngestResult> {
         let _lock = self.writer.lock().await;
         let now = now_ms();
@@ -86,7 +108,7 @@ impl Ingestor {
             .unwrap_or_else(|_| json!([]));
         let extracted = self
             .entity_ops
-            .extract_entities(source, content, &previous)
+            .extract_entities_with(source, content, &previous, entity_types_override)
             .await
             .unwrap_or_default();
         let mut entities = self
@@ -101,7 +123,7 @@ impl Ingestor {
 
         let extracted_edges = self
             .edge_ops
-            .extract_edges(content, &previous, &entities, &ref_time_str)
+            .extract_edges_with(content, &previous, &entities, &ref_time_str, edge_types_override)
             .await
             .unwrap_or_default();
         let mut resolved = self

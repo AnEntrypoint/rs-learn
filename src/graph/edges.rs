@@ -43,11 +43,20 @@ pub struct EdgeOps {
     pub store: Arc<Store>,
     pub embedder: Arc<Embedder>,
     pub llm: Arc<LlmJson>,
+    pub edge_types: Option<Value>,
 }
 
 impl EdgeOps {
     pub fn new(store: Arc<Store>, embedder: Arc<Embedder>, llm: Arc<LlmJson>) -> Self {
-        Self { store, embedder, llm }
+        Self::with_types(store, embedder, llm, None)
+    }
+
+    pub fn with_types(store: Arc<Store>, embedder: Arc<Embedder>, llm: Arc<LlmJson>, edge_types: Option<Value>) -> Self {
+        let edge_types = edge_types.or_else(|| {
+            std::env::var("RS_LEARN_EDGE_TYPES_JSON").ok()
+                .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        });
+        Self { store, embedder, llm, edge_types }
     }
 
     pub async fn extract_edges(
@@ -56,6 +65,17 @@ impl EdgeOps {
         previous_episodes: &Value,
         entities: &[Entity],
         reference_time: &str,
+    ) -> Result<Vec<ExtractedEdge>> {
+        self.extract_edges_with(episode_content, previous_episodes, entities, reference_time, None).await
+    }
+
+    pub async fn extract_edges_with(
+        &self,
+        episode_content: &str,
+        previous_episodes: &Value,
+        entities: &[Entity],
+        reference_time: &str,
+        edge_types_override: Option<&Value>,
     ) -> Result<Vec<ExtractedEdge>> {
         if entities.len() < 2 {
             return Ok(vec![]);
@@ -69,7 +89,7 @@ impl EdgeOps {
             episode_content,
             nodes: &nodes_json,
             reference_time,
-            edge_types: None,
+            edge_types: edge_types_override.or(self.edge_types.as_ref()),
             custom_extraction_instructions: None,
         });
         let v = self

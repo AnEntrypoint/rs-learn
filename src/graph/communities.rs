@@ -59,6 +59,23 @@ impl CommunityOps {
         Ok(BuildResult { community_count, member_count })
     }
 
+    pub async fn build_communities_if_dirty(&self) -> Result<BuildResult> {
+        if !self.is_dirty().await? {
+            return Ok(BuildResult { community_count: 0, member_count: 0 });
+        }
+        self.build_communities().await
+    }
+
+    async fn is_dirty(&self) -> Result<bool> {
+        let mut rows = self.store.conn.query(
+            "SELECT COALESCE((SELECT MAX(created_at) FROM nodes),0) - COALESCE((SELECT MAX(created_at) FROM communities),0)",
+            (),
+        ).await?;
+        let Some(row) = rows.next().await? else { return Ok(true); };
+        let delta: i64 = row.get(0).unwrap_or(0);
+        Ok(delta > 0)
+    }
+
     pub async fn remove_communities(&self) -> Result<()> {
         self.store.conn.execute("DELETE FROM community_members", ()).await?;
         self.store.conn.execute("DELETE FROM communities", ()).await?;

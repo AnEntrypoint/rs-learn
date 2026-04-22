@@ -39,12 +39,14 @@ pub struct EntityOps {
 
 impl EntityOps {
     pub fn new(store: Arc<Store>, embedder: Arc<Embedder>, llm: Arc<LlmJson>) -> Self {
-        Self {
-            store,
-            embedder,
-            llm,
-            entity_types: default_entity_types(),
-        }
+        Self::with_types(store, embedder, llm, None)
+    }
+
+    pub fn with_types(store: Arc<Store>, embedder: Arc<Embedder>, llm: Arc<LlmJson>, entity_types: Option<String>) -> Self {
+        let entity_types = entity_types
+            .or_else(|| std::env::var("RS_LEARN_ENTITY_TYPES_JSON").ok())
+            .unwrap_or_else(default_entity_types);
+        Self { store, embedder, llm, entity_types }
     }
 
     pub async fn extract_entities(
@@ -53,8 +55,19 @@ impl EntityOps {
         episode_content: &str,
         previous_episodes: &Value,
     ) -> Result<Vec<ExtractedEntity>> {
+        self.extract_entities_with(source, episode_content, previous_episodes, None).await
+    }
+
+    pub async fn extract_entities_with(
+        &self,
+        source: &str,
+        episode_content: &str,
+        previous_episodes: &Value,
+        entity_types_override: Option<&str>,
+    ) -> Result<Vec<ExtractedEntity>> {
+        let entity_types = entity_types_override.unwrap_or(&self.entity_types);
         let ctx = en::ExtractCtx {
-            entity_types: &self.entity_types,
+            entity_types,
             previous_episodes,
             episode_content,
             custom_extraction_instructions: None,

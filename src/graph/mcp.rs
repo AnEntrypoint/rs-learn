@@ -84,9 +84,11 @@ impl McpServer {
                 let source = args.get("source").and_then(|s| s.as_str()).unwrap_or("message").to_string();
                 let ref_time = args.get("reference_time").and_then(|s| s.as_str()).map(String::from);
                 let group_id = args.get("group_id").and_then(|s| s.as_str()).map(String::from);
+                let entity_types = args.get("entity_types").and_then(|v| match v { Value::String(s) => Some(s.clone()), other => Some(other.to_string()) });
+                let edge_types = args.get("edge_types").cloned();
                 if let Some(g) = &group_id { super::validation::validate_group_id(g)?; }
                 super::validation::validate_content(&content)?;
-                let r = self.ingestor.add_episode(&content, &source, ref_time.as_deref(), group_id.as_deref()).await?;
+                let r = self.ingestor.add_episode_with(&content, &source, ref_time.as_deref(), group_id.as_deref(), entity_types.as_deref(), edge_types.as_ref()).await?;
                 Ok(json!({
                     "episode_id": r.episode_id,
                     "nodes": r.node_count,
@@ -144,7 +146,8 @@ impl McpServer {
                 Ok(json!({ "status": "ok" }))
             }
             "build_communities" => {
-                let r = self.community_ops.build_communities().await?;
+                let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+                let r = if force { self.community_ops.build_communities().await? } else { self.community_ops.build_communities_if_dirty().await? };
                 Ok(json!({ "communities": r.community_count, "members": r.member_count }))
             }
             "remove_communities" => { self.community_ops.remove_communities().await?; Ok(json!({ "status": "ok" })) }

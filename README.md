@@ -96,6 +96,9 @@ Live E2E mode requires `RS_LEARN_ACP_LIVE=1`; otherwise the orchestrator uses th
 | `RS_LEARN_CLAUDE_MODEL` | `haiku` | model alias passed to `claude --model` |
 | `RS_LEARN_CLAUDE_PLUGIN_DIR` | — | if set, adds `--plugin-dir <path>` to `claude -p` |
 | `RS_LEARN_CLAUDE_ARGS` | — | JSON array of extra args passed to `claude -p` |
+| `RS_LEARN_ENTITY_TYPES_JSON` | — | override default entity-type schema JSON for LLM extraction |
+| `RS_LEARN_EDGE_TYPES_JSON` | — | override default edge-type schema JSON for LLM extraction |
+| `RS_LEARN_SAGA_SUMMARY_EVERY` | `10` | auto-summarize saga every N episodes (0 = never) |
 | `RS_LEARN_EWC_LAMBDA` | `2000` | EWC++ regularization strength (100–15000) |
 | `RS_LEARN_LLM_TIMEOUT_MS` | `120000` | per-turn timeout |
 | `RS_LEARN_DEBUG_ACP` | — | log ACP stderr |

@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+- graph: final bungraph-parity pass — search filters, custom type schemas, community dirty-skip, saga auto-summary.
+  - `SearchFilters { node_labels, edge_types, created_at_min/max, valid_at_min/max }` on `SearchConfig`. Applied post-`rrf_fuse` pre-rerank in `Searcher::search_table`. HTTP `POST /search` `ScopeBody.filters` + MCP `search` per-scope `filters` object route through. Empty filters = no-op back-compat.
+  - Custom extraction schemas via env + per-request override. `EntityOps::with_types(_, _, _, Option<String>)` reads `RS_LEARN_ENTITY_TYPES_JSON` when no arg. `EdgeOps::with_types(_, _, _, Option<Value>)` reads `RS_LEARN_EDGE_TYPES_JSON`. `Ingestor::with_types(store, embedder, llm, entity_types, edge_types)` bundles both. `Ingestor::add_episode_with(..., entity_types_override, edge_types_override)` allows per-call override. HTTP `POST /messages` body fields `entity_types` (string JSON) + `edge_types` (Value) and MCP `add_episode` args pass through.
+  - `CommunityOps::build_communities_if_dirty()` short-circuits when `MAX(nodes.created_at) <= MAX(communities.created_at)` — zero new schema, uses existing columns. HTTP `POST /build-communities { force: bool }` and MCP `build_communities { force }` default to dirty-skip; `force=true` forces full rebuild.
+  - `SagaOps::add_episode_to_saga(self: &Arc<Self>, ...)` auto-spawns `summarize_saga` when `(seq+1) % RS_LEARN_SAGA_SUMMARY_EVERY == 0` (default 10). Non-blocking via `tokio::spawn`. `SagaOps::with_threshold(store, llm, n)` lets callers override.
+  - Downgrade: local ONNX cross-encoder (bge-reranker-v2-m3) explicitly out of scope — existing `Reranker::CrossEncoder` (LLM-backed in `Searcher::cross_encoder_rerank`) already produces quality reranks. ONNX would require 500MB model download + `ort` crate + `tokenizers` + per-platform runtime setup; complexity greatly exceeds benefit when the LLM path works. Revisit as separate infra scope.
+- tests: 4 new regression tests — `search_filters_by_node_label_and_date_range`, `custom_entity_types_reach_prompt`, `communities_skip_when_not_dirty`, `saga_auto_summary_fires_at_threshold`. 23 graph + 15 integration + 3 spine = 41 tests green.
+
 - graph: full multi-tenancy + boundary hardening pass (closes prior bungraph→rs-learn gaps the previous "absorption" missed).
   - `NodeRow`, `EdgeRow`, `EpisodeRow`, `Entity`, `ResolvedEdge` carry `group_id: Option<String>`. `Store::insert_node` / `insert_edge` / `insert_episode` now thread it into the column list (was always defaulting to `'default'` regardless of caller).
   - `Ingestor::add_episode(content, source, reference_time, group_id)`, `add_triplet(..., group_id)`, `add_episode_bulk(items, group_id)` — `BulkEpisode` also gains optional per-item `group_id` (item override beats batch-level).

@@ -9,11 +9,24 @@ use super::prompts::summarize_sagas;
 pub struct SagaOps {
     pub store: Arc<Store>,
     pub llm: Arc<LlmJson>,
+    pub summary_every: u64,
+}
+
+fn summary_every_from_env() -> u64 {
+    std::env::var("RS_LEARN_SAGA_SUMMARY_EVERY").ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(10)
 }
 
 impl SagaOps {
     pub fn new(store: Arc<Store>, llm: Arc<LlmJson>) -> Self {
-        Self { store, llm }
+        Self { store, llm, summary_every: summary_every_from_env() }
+    }
+
+    pub fn with_threshold(store: Arc<Store>, llm: Arc<LlmJson>, summary_every: u64) -> Self {
+        let n = if summary_every == 0 { summary_every_from_env() } else { summary_every };
+        Self { store, llm, summary_every: n }
     }
 
     pub async fn create_saga(&self, name: &str) -> Result<String> {
@@ -26,7 +39,7 @@ impl SagaOps {
         Ok(id)
     }
 
-    pub async fn add_episode_to_saga(&self, saga_id: &str, episode_id: &str) -> Result<i64> {
+    pub async fn add_episode_to_saga(self: &Arc<Self>, saga_id: &str, episode_id: &str) -> Result<i64> {
         let next_seq = self.next_seq(saga_id).await?;
         self.store.conn.execute(
             "INSERT INTO saga_episodes(saga_id,episode_id,seq) VALUES(?1,?2,?3)
@@ -56,6 +69,14 @@ impl SagaOps {
                     ],
                 ).await?;
             }
+        }
+        let count = next_seq + 1;
+        if self.summary_every > 0 && (count as u64) % self.summary_every == 0 {
+            let me = self.clone();
+            let sid = saga_id.to_string();
+            tokio::spawn(async move {
+                let _ = me.summarize_saga(&sid).await;
+            });
         }
         Ok(next_seq)
     }

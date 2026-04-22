@@ -18,6 +18,47 @@ pub enum Reranker {
     CrossEncoder,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SearchFilters {
+    #[serde(default)]
+    pub node_labels: Vec<String>,
+    #[serde(default)]
+    pub edge_types: Vec<String>,
+    #[serde(default)]
+    pub created_at_min: Option<i64>,
+    #[serde(default)]
+    pub created_at_max: Option<i64>,
+    #[serde(default)]
+    pub valid_at_min: Option<i64>,
+    #[serde(default)]
+    pub valid_at_max: Option<i64>,
+}
+
+impl SearchFilters {
+    pub fn is_empty(&self) -> bool {
+        self.node_labels.is_empty() && self.edge_types.is_empty()
+            && self.created_at_min.is_none() && self.created_at_max.is_none()
+            && self.valid_at_min.is_none() && self.valid_at_max.is_none()
+    }
+    pub fn matches(&self, row: &HashMap<String, serde_json::Value>) -> bool {
+        if !self.node_labels.is_empty() {
+            let ty = row.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            if !self.node_labels.iter().any(|l| l == ty) { return false; }
+        }
+        if !self.edge_types.is_empty() {
+            let rel = row.get("relation").and_then(|v| v.as_str()).unwrap_or("");
+            if !self.edge_types.iter().any(|l| l == rel) { return false; }
+        }
+        let created_at = row.get("created_at").and_then(|v| v.as_i64());
+        if let (Some(min), Some(c)) = (self.created_at_min, created_at) { if c < min { return false; } }
+        if let (Some(max), Some(c)) = (self.created_at_max, created_at) { if c > max { return false; } }
+        let valid_at = row.get("valid_at").and_then(|v| v.as_i64());
+        if let (Some(min), Some(c)) = (self.valid_at_min, valid_at) { if c < min { return false; } }
+        if let (Some(max), Some(c)) = (self.valid_at_max, valid_at) { if c > max { return false; } }
+        true
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchConfig {
     pub limit: usize,
@@ -32,6 +73,8 @@ pub struct SearchConfig {
     pub use_fts: bool,
     #[serde(default)]
     pub center_node_ids: Vec<String>,
+    #[serde(default)]
+    pub filters: SearchFilters,
 }
 
 fn default_true() -> bool { true }
@@ -48,6 +91,7 @@ impl Default for SearchConfig {
             use_vector: true,
             use_fts: true,
             center_node_ids: Vec::new(),
+            filters: SearchFilters::default(),
         }
     }
 }
@@ -183,6 +227,7 @@ impl Searcher {
                 score,
                 row: row_to_json_map(&row),
             })
+            .filter(|h| cfg.filters.is_empty() || cfg.filters.matches(&h.row))
             .collect();
         let mut effective = cfg.clone();
         if matches!(effective.reranker, Reranker::NodeDistance)
