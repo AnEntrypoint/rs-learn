@@ -21,6 +21,12 @@ Layers:
 ## Install
 
 ```bash
+cargo install --git https://github.com/AnEntrypoint/rs-learn
+```
+
+Once published to crates.io:
+
+```bash
 cargo install rs-learn
 ```
 

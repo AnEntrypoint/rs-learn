@@ -1,0 +1,91 @@
+name: publish
+
+on:
+  workflow_run:
+    workflows: [test]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Resolve next version
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          current=$(awk -F '"' '/^version *= *"/{print $2; exit}' Cargo.toml)
+          echo "current=$current"
+          published=$(curl -s https://crates.io/api/v1/crates/rs-learn | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("crate",{}).get("max_version","") if "crate" in d else "")' || true)
+          echo "published=$published"
+          next="$current"
+          if [[ -n "$published" && "$current" == "$published" ]]; then
+            IFS=. read -r major minor patch <<<"$current"
+            next="${major}.${minor}.$((patch+1))"
+          fi
+          if [[ -n "$published" ]]; then
+            if printf '%s\n%s\n' "$next" "$published" | sort -V -C; then
+              IFS=. read -r major minor patch <<<"$published"
+              next="${major}.${minor}.$((patch+1))"
+            fi
+          fi
+          echo "next=$next"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "published=$published" >> "$GITHUB_OUTPUT"
+
+      - name: Bump Cargo.toml if needed
+        if: steps.ver.outputs.next != steps.ver.outputs.current
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i 's/^version = "${{ steps.ver.outputs.current }}"$/version = "${{ steps.ver.outputs.next }}"/' Cargo.toml
+          cargo update -p rs-learn --precise ${{ steps.ver.outputs.next }} || true
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock
+          git commit -m "chore: bump version to ${{ steps.ver.outputs.next }}"
+          git push origin main
+
+      - name: Check if tag exists
+        id: tag
+        shell: bash
+        run: |
+          if git rev-parse "v${{ steps.ver.outputs.next }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Tag and push
+        if: steps.tag.outputs.exists == 'false'
+        shell: bash
+        run: |
+          git tag -a "v${{ steps.ver.outputs.next }}" -m "v${{ steps.ver.outputs.next }}"
+          git push origin "v${{ steps.ver.outputs.next }}"
+
+      - name: Publish to crates.io
+        if: steps.tag.outputs.exists == 'false'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        shell: bash
+        run: |
+          if [[ -z "${CARGO_REGISTRY_TOKEN:-}" ]]; then
+            echo "CARGO_REGISTRY_TOKEN not set; skipping crates.io publish"
+            exit 0
+          fi
+          cargo publish --token "${CARGO_REGISTRY_TOKEN}"
