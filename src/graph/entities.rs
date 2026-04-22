@@ -11,6 +11,9 @@ use super::llm::{require_array_field, LlmJson};
 use super::prompts::dedupe_nodes as dn;
 use super::prompts::extract_nodes as en;
 
+pub const NODE_DEDUP_CANDIDATE_LIMIT: usize = 15;
+pub const MAX_NODES: usize = 30;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractedEntity {
     pub name: String,
@@ -81,6 +84,7 @@ impl EntityOps {
                 }
             }
         }
+        out.truncate(MAX_NODES);
         Ok(out)
     }
 
@@ -96,7 +100,7 @@ impl EntityOps {
             let existing = if emb.is_empty() {
                 vec![]
             } else {
-                self.store.vector_top_k("nodes", &emb, 5, None).await.unwrap_or_default()
+                self.store.vector_top_k("nodes", &emb, NODE_DEDUP_CANDIDATE_LIMIT, None).await.unwrap_or_default()
             };
             if let Some(exact) = exact_name_match(&cand.name, &existing) {
                 resolved.push(Entity {
