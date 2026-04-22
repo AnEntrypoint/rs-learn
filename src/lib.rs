@@ -4,6 +4,7 @@ pub mod memory;
 pub mod attention;
 pub mod router;
 pub mod acp;
+pub mod backend;
 pub mod errors;
 pub mod learn;
 pub mod federated;
@@ -13,6 +14,7 @@ pub mod export;
 pub mod rs_search_bridge;
 
 pub use acp::AcpClient;
+pub use backend::{AgentBackend, ClaudeCliClient};
 pub use attention::Attention;
 pub use embeddings::Embedder;
 pub use errors::{LlmError, Result};

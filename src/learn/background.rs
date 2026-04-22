@@ -1,4 +1,4 @@
-use crate::acp::AcpClient;
+use crate::backend::AgentBackend;
 use crate::learn::instant::InstantLoop;
 use crate::learn::reasoning_bank::ReasoningBank;
 use crate::observability;
@@ -128,7 +128,7 @@ pub fn kmeans_centroids(vectors: &[Vec<f32>], assignments: &[ClusterAssignment],
 pub struct BackgroundLoop {
     pub store: Arc<Store>,
     pub router: Arc<Mutex<Router>>,
-    pub acp: Option<Arc<AcpClient>>,
+    pub acp: Option<Arc<dyn AgentBackend>>,
     pub reasoning: Arc<ReasoningBank>,
     pub instant: Option<Arc<Mutex<InstantLoop>>>,
     pub k: usize,
@@ -140,7 +140,7 @@ pub struct BackgroundLoop {
 }
 
 impl BackgroundLoop {
-    pub fn new(store: Arc<Store>, router: Arc<Mutex<Router>>, acp: Option<Arc<AcpClient>>, reasoning: Arc<ReasoningBank>, instant: Option<Arc<Mutex<InstantLoop>>>) -> Arc<Self> {
+    pub fn new(store: Arc<Store>, router: Arc<Mutex<Router>>, acp: Option<Arc<dyn AgentBackend>>, reasoning: Arc<ReasoningBank>, instant: Option<Arc<Mutex<InstantLoop>>>) -> Arc<Self> {
         let run_count = Arc::new(AtomicU64::new(0));
         let last_k = Arc::new(AtomicU64::new(0));
         let last_duration_ms = Arc::new(AtomicU64::new(0));

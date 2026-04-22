@@ -2,7 +2,7 @@ mod types;
 
 pub use types::{QueryOpts, QueryResult, RouteSnapshot, Session};
 
-use crate::acp::AcpClient;
+use crate::backend::{self, AgentBackend};
 use crate::attention::Attention;
 use crate::embeddings::Embedder;
 use crate::learn::instant::{FeedbackPayload, InstantLoop};
@@ -28,7 +28,7 @@ pub struct Orchestrator {
     pub router: Arc<Mutex<Router>>,
     pub instant: Arc<Mutex<InstantLoop>>,
     pub reasoning: Arc<ReasoningBank>,
-    pub acp: Arc<AcpClient>,
+    pub acp: Arc<dyn AgentBackend>,
     pub rs_search: Option<Arc<RsSearch>>,
     pub sessions: Arc<RwLock<HashMap<String, Session>>>,
     pub store: Arc<Store>,
@@ -50,17 +50,22 @@ impl Orchestrator {
         let router = Arc::new(Mutex::new(Router::new(store.clone(), targets.clone())));
         let instant = Arc::new(Mutex::new(InstantLoop::new(store.clone(), router.clone(), targets.clone())));
         let reasoning = Arc::new(ReasoningBank::new(store.clone()));
-        let acp = Arc::new(AcpClient::from_env().map_err(|e| anyhow!("acp: {e}"))?);
+        let acp = backend::from_env().map_err(|e| anyhow!("backend: {e}"))?;
         let rs_search = if std::env::var("RS_LEARN_CODE_SEARCH").is_ok() { Some(Arc::new(RsSearch::new())) } else { None };
         let search_root: PathBuf = std::env::var("RS_LEARN_SEARCH_ROOT").map(PathBuf::from)
             .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
         let queries = Arc::new(AtomicU64::new(0));
         let total_ms = Arc::new(AtomicU64::new(0));
         let q2 = queries.clone(); let t2 = total_ms.clone();
+        let backend_name = acp.name();
         observability::register("orchestrator", move || {
             let n = q2.load(Ordering::Relaxed);
             let t = t2.load(Ordering::Relaxed);
-            json!({ "queries_count": n, "avg_latency_ms": if n > 0 { t as f64 / n as f64 } else { 0.0 } })
+            json!({
+                "queries_count": n,
+                "avg_latency_ms": if n > 0 { t as f64 / n as f64 } else { 0.0 },
+                "backend": backend_name,
+            })
         });
         Ok(Self {
             embedder, memory, attention, router, instant, reasoning, acp, rs_search,

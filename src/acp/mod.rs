@@ -1,7 +1,9 @@
 mod proto;
 
+pub use proto::parse_json_payload;
+
 use crate::errors::{LlmError, Result};
-use proto::{parse_json_payload, Request, Response, RpcMessage, PROTOCOL_VERSION};
+use proto::{Request, Response, RpcMessage, PROTOCOL_VERSION};
 use serde_json::{json, Value};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};

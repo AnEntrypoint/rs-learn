@@ -56,22 +56,30 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-## ACP spawn
+## Agent backends
 
-Set `RS_LEARN_ACP_COMMAND` to the ACP stdio command of any compatible agent:
+rs-learn runs against either an ACP stdio agent or Claude Code's non-interactive `claude -p` mode. Pick one with `RS_LEARN_BACKEND=acp|claude-cli`, or leave it unset and rs-learn auto-selects (ACP if `RS_LEARN_ACP_COMMAND` is set, else claude-cli).
+
+### ACP stdio
 
 ```bash
-# opencode
 RS_LEARN_ACP_COMMAND="opencode acp" rs-learn
-
-# kilo (requires prior `kilo auth login`)
-RS_LEARN_ACP_COMMAND="kilo acp" rs-learn
-
-# any ACP stdio agent
-RS_LEARN_ACP_COMMAND="claude-cli acp" rs-learn
+RS_LEARN_ACP_COMMAND="kilo acp" rs-learn          # requires prior `kilo auth login`
 RS_LEARN_ACP_COMMAND="gemini-cli acp" rs-learn
 RS_LEARN_ACP_COMMAND="codex acp" rs-learn
 ```
+
+### Claude CLI (`claude -p`)
+
+```bash
+# auto-selects claude-cli when RS_LEARN_ACP_COMMAND is unset
+RS_LEARN_CLAUDE_MODEL=haiku rs-learn
+
+# or force it
+RS_LEARN_BACKEND=claude-cli RS_LEARN_CLAUDE_MODEL=sonnet rs-learn
+```
+
+Requires `claude` on PATH and a logged-in Claude Code install. Each query spawns a fresh `claude -p --output-format json --dangerously-skip-permissions --no-session-persistence` subprocess; prompt is piped via stdin so Windows `.cmd` argv parsing does not apply.
 
 Live E2E mode requires `RS_LEARN_ACP_LIVE=1`; otherwise the orchestrator uses the stub handler for tests.
 
@@ -80,9 +88,14 @@ Live E2E mode requires `RS_LEARN_ACP_LIVE=1`; otherwise the orchestrator uses th
 | Var | Default | Meaning |
 |---|---|---|
 | `RS_LEARN_DB_PATH` | `.rs-learn.db` | libsql file path |
-| `RS_LEARN_ACP_COMMAND` | (required for live) | ACP stdio command, e.g. `opencode acp` |
+| `RS_LEARN_BACKEND` | auto | `acp` \| `claude-cli`; auto = acp if `RS_LEARN_ACP_COMMAND` set, else claude-cli |
+| `RS_LEARN_ACP_COMMAND` | — | ACP stdio command, e.g. `opencode acp` |
 | `RS_LEARN_ACP_ARGS` | — | extra args (whitespace-separated) |
 | `RS_LEARN_ACP_LIVE` | `0` | `1` = spawn real ACP subprocess, `0` = stub |
+| `RS_LEARN_CLAUDE_CLI` | `claude` | path/name of Claude CLI binary |
+| `RS_LEARN_CLAUDE_MODEL` | `haiku` | model alias passed to `claude --model` |
+| `RS_LEARN_CLAUDE_PLUGIN_DIR` | — | if set, adds `--plugin-dir <path>` to `claude -p` |
+| `RS_LEARN_CLAUDE_ARGS` | — | JSON array of extra args passed to `claude -p` |
 | `RS_LEARN_EWC_LAMBDA` | `2000` | EWC++ regularization strength (100–15000) |
 | `RS_LEARN_LLM_TIMEOUT_MS` | `120000` | per-turn timeout |
 | `RS_LEARN_DEBUG_ACP` | — | log ACP stderr |
