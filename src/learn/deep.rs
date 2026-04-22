@@ -9,7 +9,8 @@ use std::sync::{Arc, Mutex};
 const FISHER_DECAY: f32 = 0.999;
 const DEFAULT_LAMBDA: f32 = 2000.0;
 const RING_CAP: usize = 10;
-const BOUNDARY_DELTA: f32 = 0.5;
+const BOUNDARY_Z: f32 = 2.5;
+const MIN_STDDEV: f32 = 1e-4;
 
 pub struct DeepLoop {
     pub store: Arc<Store>,
@@ -69,13 +70,17 @@ impl DeepLoop {
     }
 
     pub async fn record_loss(&mut self, loss: f32) -> Result<bool> {
+        let prior: Vec<f32> = self.loss_ring.iter().copied().collect();
         if self.loss_ring.len() >= self.ring_cap { self.loss_ring.pop_front(); }
         self.loss_ring.push_back(loss);
         if let Ok(mut r) = self.ring_shared.lock() { *r = self.loss_ring.iter().copied().collect(); }
-        if self.loss_ring.len() < 2 { return Ok(false); }
-        let mean = self.loss_ring.iter().sum::<f32>() / self.loss_ring.len() as f32;
-        let delta = (loss - mean).abs();
-        if delta > BOUNDARY_DELTA {
+        if prior.len() < 3 { return Ok(false); }
+        let n = prior.len() as f32;
+        let mean = prior.iter().sum::<f32>() / n;
+        let var = prior.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / n;
+        let stddev = var.sqrt().max(MIN_STDDEV);
+        let z = (loss - mean).abs() / stddev;
+        if z > BOUNDARY_Z {
             self.boundaries_detected.fetch_add(1, Ordering::Relaxed);
             return Ok(true);
         }
@@ -154,7 +159,13 @@ mod tests {
         let store = tmp_store().await;
         let mut dl = DeepLoop::new(store);
         for _ in 0..5 { let _ = dl.record_loss(0.1).await.unwrap(); }
-        let boundary = dl.record_loss(1.0).await.unwrap();
-        assert!(boundary, "delta>0.5 vs ring mean should trigger boundary");
+        let spike = dl.record_loss(10.0).await.unwrap();
+        assert!(spike, "z-score spike should trigger boundary");
+
+        let store2 = tmp_store().await;
+        let mut dl2 = DeepLoop::new(store2);
+        for i in 0..5 { let _ = dl2.record_loss(0.1 + 0.01 * i as f32).await.unwrap(); }
+        let calm = dl2.record_loss(0.13).await.unwrap();
+        assert!(!calm, "within-noise loss must not trigger boundary");
     }
 }

@@ -1,3 +1,7 @@
+pub mod kmeans;
+
+pub use kmeans::{kmeans_plus_plus, kmeans_centroids, ClusterAssignment};
+
 use crate::backend::AgentBackend;
 use crate::learn::instant::InstantLoop;
 use crate::learn::reasoning_bank::ReasoningBank;
@@ -16,7 +20,6 @@ use uuid::Uuid;
 const DEFAULT_K: usize = 100;
 const DEFAULT_LIMIT: usize = 1000;
 const DEFAULT_SEED: u32 = 42;
-const MAX_ITER: usize = 25;
 const QUALITY_THRESHOLD: f32 = 0.7;
 
 #[derive(Debug, Clone, Default)]
@@ -26,103 +29,6 @@ pub struct RunStats {
     pub reasoning_written: usize,
     pub trained_on: usize,
     pub duration_ms: u128,
-}
-
-#[derive(Debug, Clone)]
-pub struct ClusterAssignment {
-    pub index: usize,
-    pub cluster: usize,
-}
-
-fn mulberry32(seed: u32) -> impl FnMut() -> f32 {
-    let mut a: u32 = seed;
-    move || {
-        a = a.wrapping_add(0x6D2B_79F5);
-        let mut t = a;
-        t = (t ^ (t >> 15)).wrapping_mul(t | 1);
-        t ^= t.wrapping_add((t ^ (t >> 7)).wrapping_mul(t | 61));
-        ((t ^ (t >> 14)) as f32) / 4_294_967_296.0
-    }
-}
-
-fn cosine_dist(a: &[f32], b: &[f32]) -> f32 {
-    let mut dot = 0f32; let mut na = 0f32; let mut nb = 0f32;
-    for i in 0..a.len() { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
-    let denom = (na.sqrt() * nb.sqrt()).max(1e-9);
-    1.0 - dot / denom
-}
-
-pub fn kmeans_plus_plus(vectors: &[Vec<f32>], k: usize, seed: u32) -> Vec<ClusterAssignment> {
-    let n = vectors.len();
-    if n == 0 || k == 0 { return vec![]; }
-    let kk = k.min(n);
-    let mut rng = mulberry32(seed);
-    let mut centroids: Vec<Vec<f32>> = Vec::with_capacity(kk);
-    let first = (rng() * n as f32).floor() as usize;
-    centroids.push(vectors[first.min(n - 1)].clone());
-    let mut d2 = vec![0f32; n];
-    while centroids.len() < kk {
-        let mut sum = 0f32;
-        for i in 0..n {
-            let mut m = f32::INFINITY;
-            for c in &centroids {
-                let v = cosine_dist(&vectors[i], c);
-                if v < m { m = v; }
-            }
-            d2[i] = m; sum += m;
-        }
-        if sum == 0.0 { break; }
-        let mut r = rng() * sum;
-        let mut pick = n - 1;
-        for i in 0..n {
-            r -= d2[i];
-            if r <= 0.0 { pick = i; break; }
-        }
-        centroids.push(vectors[pick].clone());
-    }
-    let dim = vectors[0].len();
-    let mut assign = vec![0usize; n];
-    for _ in 0..MAX_ITER {
-        let mut changed = 0usize;
-        for i in 0..n {
-            let mut best = 0usize; let mut bd = f32::INFINITY;
-            for (j, c) in centroids.iter().enumerate() {
-                let d = cosine_dist(&vectors[i], c);
-                if d < bd { bd = d; best = j; }
-            }
-            if assign[i] != best { changed += 1; assign[i] = best; }
-        }
-        let mut sums: Vec<Vec<f32>> = centroids.iter().map(|_| vec![0f32; dim]).collect();
-        let mut counts = vec![0usize; centroids.len()];
-        for i in 0..n {
-            let a = assign[i]; counts[a] += 1;
-            for d in 0..dim { sums[a][d] += vectors[i][d]; }
-        }
-        for j in 0..centroids.len() {
-            if counts[j] == 0 { continue; }
-            for d in 0..dim { centroids[j][d] = sums[j][d] / counts[j] as f32; }
-        }
-        if changed == 0 { break; }
-    }
-    (0..n).map(|i| ClusterAssignment { index: i, cluster: assign[i] }).collect()
-}
-
-pub fn kmeans_centroids(vectors: &[Vec<f32>], assignments: &[ClusterAssignment], k: usize) -> Vec<Vec<f32>> {
-    if vectors.is_empty() { return vec![]; }
-    let dim = vectors[0].len();
-    let kk = k.min(vectors.len());
-    let mut sums: Vec<Vec<f32>> = (0..kk).map(|_| vec![0f32; dim]).collect();
-    let mut counts = vec![0usize; kk];
-    for a in assignments {
-        if a.cluster >= kk { continue; }
-        counts[a.cluster] += 1;
-        for d in 0..dim { sums[a.cluster][d] += vectors[a.index][d]; }
-    }
-    for j in 0..kk {
-        if counts[j] == 0 { continue; }
-        for d in 0..dim { sums[j][d] /= counts[j] as f32; }
-    }
-    sums
 }
 
 pub struct BackgroundLoop {
@@ -163,12 +69,12 @@ impl BackgroundLoop {
         let t0 = Instant::now();
         let rows = self.store.list_recent_trajectories_with_embeddings(self.limit).await?;
         let mut vectors: Vec<Vec<f32>> = Vec::new();
-        let mut meta: Vec<(String, f64, String)> = Vec::new();
+        let mut meta: Vec<(String, f64, String, Option<String>)> = Vec::new();
         for r in &rows {
             let Some(emb) = &r.query_embedding else { continue };
             if emb.len() != IN { continue; }
             vectors.push(emb.clone());
-            meta.push((r.id.clone(), r.quality.unwrap_or(0.0), r.router_decision.clone().unwrap_or_default()));
+            meta.push((r.id.clone(), r.quality.unwrap_or(0.0), r.router_decision.clone().unwrap_or_default(), r.query.clone()));
         }
         if vectors.len() < 2 {
             self.run_count.fetch_add(1, Ordering::Relaxed);
@@ -207,7 +113,7 @@ impl BackgroundLoop {
         }
 
         let mut batch: Vec<TrainSample> = Vec::new();
-        for (i, (_, q, dec)) in meta.iter().enumerate() {
+        for (i, (_, q, dec, _)) in meta.iter().enumerate() {
             if *q < QUALITY_THRESHOLD as f64 { continue; }
             let model = serde_json::from_str::<serde_json::Value>(dec).ok()
                 .and_then(|v| v.get("model").and_then(|m| m.as_str()).map(String::from));
@@ -226,16 +132,37 @@ impl BackgroundLoop {
         Ok(RunStats { clusters: kk, patterns_written, reasoning_written, trained_on, duration_ms: dur })
     }
 
-    async fn summarize_cluster(&self, members: &[usize], meta: &[(String, f64, String)]) -> String {
-        let Some(acp) = &self.acp else {
-            return format!("auto-cluster n={}", members.len());
+    async fn summarize_cluster(&self, members: &[usize], meta: &[(String, f64, String, Option<String>)]) -> String {
+        let samples: Vec<String> = members.iter()
+            .filter_map(|&i| meta[i].3.clone())
+            .filter(|q| !q.trim().is_empty())
+            .take(5)
+            .collect();
+        let fallback = match samples.first() {
+            Some(first) => {
+                let prefix: String = first.chars().take(60).collect();
+                format!("cluster of {} queries around: {}", members.len(), prefix.trim())
+            }
+            None => format!("cluster of {} trajectories", members.len()),
         };
-        let sample: Vec<String> = members.iter().take(5).map(|&i| meta[i].0.clone()).collect();
-        let prompt = format!("summarize these trajectories: {}", sample.join(", "));
+        let Some(acp) = &self.acp else { return fallback; };
+        if samples.is_empty() { return fallback; }
+        let prompt = format!(
+            "Summarize the shared intent of these user queries as a single reusable strategy (<100 chars):\n- {}",
+            samples.join("\n- ")
+        );
         match acp.generate("", &prompt, 20_000).await {
             Ok(v) => v.get("strategy").and_then(|s| s.as_str()).map(String::from)
-                .unwrap_or_else(|| v.to_string()),
-            Err(_) => format!("auto-cluster n={}", members.len()),
+                .unwrap_or_else(|| {
+                    match &v {
+                        serde_json::Value::String(s) if !s.trim().is_empty() => s.clone(),
+                        other => {
+                            let s = other.to_string();
+                            if s.trim().is_empty() || s == "null" { fallback.clone() } else { s }
+                        }
+                    }
+                }),
+            Err(_) => fallback,
         }
     }
 
@@ -259,6 +186,7 @@ impl Drop for BackgroundLoop {
 mod tests {
     use super::*;
     use crate::store::types::TrajectoryRow;
+    use kmeans::mulberry32;
 
     #[test]
     fn kmeans_deterministic_same_seed() {
@@ -307,5 +235,58 @@ mod tests {
         assert!(patterns > 0, "patterns table empty");
         let reasoning = store.count_rows("reasoning_bank").await;
         assert!(reasoning > 0, "reasoning_bank empty");
+    }
+
+    #[tokio::test]
+    async fn summarize_prompt_uses_query_content_not_ids() {
+        use crate::backend::AgentBackend;
+        use crate::errors::{LlmError, Result as LlmResult};
+        use async_trait::async_trait;
+        use std::sync::Mutex as StdMutex;
+
+        struct CapBackend(Arc<StdMutex<Vec<String>>>);
+        #[async_trait]
+        impl AgentBackend for CapBackend {
+            async fn generate(&self, _s: &str, u: &str, _t: u64) -> LlmResult<serde_json::Value> {
+                self.0.lock().unwrap().push(u.to_string());
+                Err(LlmError::Validation("stub".into()))
+            }
+            fn name(&self) -> &'static str { "cap" }
+        }
+
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        drop(tmp);
+        let store = Arc::new(Store::open(&path).await.unwrap());
+        let targets = vec!["a".to_string()];
+        let router = Arc::new(Mutex::new(Router::new(store.clone(), targets)));
+        let reasoning = Arc::new(ReasoningBank::new(store.clone()));
+        let hits = Arc::new(StdMutex::new(Vec::new()));
+        let acp: Arc<dyn AgentBackend> = Arc::new(CapBackend(hits.clone()));
+
+        let mut rng = kmeans::mulberry32(9);
+        for i in 0..4 {
+            let emb: Vec<f32> = (0..IN).map(|_| rng() - 0.5).collect();
+            store.insert_trajectory(&TrajectoryRow {
+                id: format!("t{}", i),
+                session_id: Some("s".into()),
+                query: Some(format!("how do I refactor {} module", i)),
+                query_embedding: Some(emb),
+                retrieved_ids: None,
+                router_decision: Some("{\"model\":\"a\"}".to_string()),
+                response: None,
+                activations: None,
+                quality: Some(0.9),
+                latency_ms: Some(1),
+                created_at: Some(100 + i as i64),
+            }).await.unwrap();
+        }
+        let bg = BackgroundLoop::new(store.clone(), router, Some(acp), reasoning, None);
+        let _ = bg.run_once().await.unwrap();
+        let captured = hits.lock().unwrap().clone();
+        assert!(!captured.is_empty(), "backend was not called");
+        let p = &captured[0];
+        assert!(p.contains("refactor"), "prompt lacks query content: {p}");
+        assert!(!p.contains("t0,"), "prompt must not contain raw trajectory ids");
     }
 }

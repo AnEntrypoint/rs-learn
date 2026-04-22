@@ -121,6 +121,14 @@ fn softmax_argmax(a: &[f32]) -> (usize, f32) {
     (mi, (a[mi] - m).exp() / s)
 }
 
+fn softmax(a: &[f32]) -> Vec<f32> {
+    let m = a.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let mut out: Vec<f32> = a.iter().map(|&v| (v - m).exp()).collect();
+    let s: f32 = out.iter().sum();
+    if s > 0.0 { for x in out.iter_mut() { *x /= s; } }
+    out
+}
+
 fn bucket_for_tokens(n: u64) -> u8 {
     for (i, &cap) in BUCKET_CAPS.iter().enumerate() { if n <= cap { return i as u8; } }
     4
@@ -161,13 +169,19 @@ impl Router {
     }
 
     pub fn route(&self, emb: &[f32], ctx: &RouteCtx) -> Route {
+        self.route_with_adapter(emb, ctx, |_, _| {})
+    }
+
+    pub fn route_with_adapter<F: Fn(&[f32], &mut [f32])>(&self, emb: &[f32], ctx: &RouteCtx, adapter: F) -> Route {
         let t0 = std::time::Instant::now();
         let out = if !self.trained {
             Route { model: self.targets[0].clone(), context_bucket: bucket_for_tokens(ctx.estimated_tokens),
                     temperature: 0.7, top_p: 0.9, confidence: 0.5, algo: "rule" }
         } else {
             let f = forward(&self.w, &self.heads, emb, self.targets.len());
-            let (idx, p) = softmax_argmax(&f.ml);
+            let mut ml = f.ml.clone();
+            adapter(emb, &mut ml);
+            let (idx, p) = softmax_argmax(&ml);
             let (cb, _) = softmax_argmax(&f.cl);
             Route { model: self.targets[idx].clone(), context_bucket: cb as u8,
                     temperature: f.tp, top_p: f.top_p, confidence: f.conf * p, algo: "fastgrnn" }
@@ -179,13 +193,29 @@ impl Router {
 
     pub fn train(&mut self, batch: &[TrainSample]) -> Result<usize> {
         let mut applied = 0usize;
+        let nt = self.targets.len();
+        let base_lr = 0.05f32;
         for tr in batch {
             if tr.quality <= 0.7 || tr.embedding.len() != IN { continue; }
             let Some(t_idx) = self.targets.iter().position(|t| t == &tr.chosen_target) else { continue };
-            let f = forward(&self.w, &self.heads, &tr.embedding, self.targets.len());
-            let off = t_idx * DIM;
-            for d in 0..DIM { self.heads.model[off + d] += 0.01 * f.h[d]; }
-            self.heads.model_b[t_idx] += 0.01;
+            let f = forward(&self.w, &self.heads, &tr.embedding, nt);
+            let lr = base_lr * tr.quality;
+            let model_probs = softmax(&f.ml);
+            for k in 0..nt {
+                let err = model_probs[k] - if k == t_idx { 1.0 } else { 0.0 };
+                let off = k * DIM;
+                for d in 0..DIM { self.heads.model[off + d] -= lr * err * f.h[d]; }
+                self.heads.model_b[k] -= lr * err;
+            }
+            let ctx_target = bucket_for_tokens(tr.embedding.len() as u64) as usize;
+            let ctx_target = ctx_target.min(CTX_BUCKETS - 1);
+            let ctx_probs = softmax(&f.cl);
+            for k in 0..CTX_BUCKETS {
+                let err = ctx_probs[k] - if k == ctx_target { 1.0 } else { 0.0 };
+                let off = k * DIM;
+                for d in 0..DIM { self.heads.ctx[off + d] -= lr * err * f.h[d]; }
+                self.heads.ctx_b[k] -= lr * err;
+            }
             applied += 1;
         }
         self.trajectory_count += applied as u64;
@@ -277,5 +307,28 @@ mod tests {
         for _ in 0..100 { let _ = r2.route(&emb, &RouteCtx::default()); }
         let per_us = t0.elapsed().as_micros() / 100;
         assert!(per_us < 1000, "inference p50 {}us >= 1000us", per_us);
+    }
+
+    #[tokio::test]
+    async fn train_softmax_shifts_prediction_toward_chosen() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        drop(tmp);
+        let store = Arc::new(Store::open(&path).await.unwrap());
+        let targets = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let mut r = Router::new(store, targets.clone());
+        let emb: Vec<f32> = (0..IN).map(|i| ((i as f32) * 0.01).sin()).collect();
+        let before = forward(&r.w, &r.heads, &emb, targets.len());
+        let samples: Vec<TrainSample> = (0..200).map(|_| TrainSample {
+            embedding: emb.clone(), chosen_target: "b".into(), quality: 0.95,
+        }).collect();
+        let applied = r.train(&samples).unwrap();
+        assert_eq!(applied, 200);
+        let after = forward(&r.w, &r.heads, &emb, targets.len());
+        assert!(after.ml[1] - before.ml[1] > after.ml[0] - before.ml[0],
+            "logit for chosen target must grow faster than non-chosen");
+        assert!(after.ml[1] - before.ml[1] > after.ml[2] - before.ml[2]);
+        let max_abs = r.heads.model.iter().map(|x| x.abs()).fold(0f32, f32::max);
+        assert!(max_abs < 10.0, "weights should stay bounded under softmax training, got max {max_abs}");
     }
 }

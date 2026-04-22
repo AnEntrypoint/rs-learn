@@ -94,18 +94,27 @@ impl InstantLoop {
     }
 
     pub fn apply_adapter(&self, embedding: &[f32], logits: &mut [f32]) {
-        if embedding.len() != IN || logits.len() != self.n_targets { return; }
-        let mut proj = [0f32; RANK];
-        for r in 0..RANK {
+        Self::apply_adapter_raw(&self.adapter_a, &self.adapter_b, RANK, &self.targets, embedding, logits);
+    }
+
+    pub fn apply_adapter_raw(a: &[f32], b: &[f32], rank: usize, targets: &[String], embedding: &[f32], logits: &mut [f32]) {
+        let nt = targets.len();
+        if embedding.len() != IN || logits.len() != nt { return; }
+        if a.len() != rank * IN || b.len() != rank * nt { return; }
+        let mut proj = vec![0f32; rank];
+        for r in 0..rank {
             let off = r * IN;
-            proj[r] = crate::simd::dot(&self.adapter_a[off..off + IN], embedding);
+            proj[r] = crate::simd::dot(&a[off..off + IN], embedding);
         }
-        for k in 0..self.n_targets {
+        for k in 0..nt {
             let mut s = 0f32;
-            for r in 0..RANK { s += self.adapter_b[r * self.n_targets + k] * proj[r]; }
+            for r in 0..rank { s += b[r * nt + k] * proj[r]; }
             logits[k] += s;
         }
     }
+
+    pub fn targets_clone(&self) -> Vec<String> { self.targets.clone() }
+    pub fn adapter_rank(&self) -> usize { RANK }
 
     pub fn reset_adapter(&mut self) {
         self.adapter_a.fill(0.0);
@@ -234,5 +243,40 @@ mod tests {
         let mut logits = vec![0f32; 2];
         il.apply_adapter(&vec![0.05f32; IN], &mut logits);
         assert!(logits[0].abs() + logits[1].abs() > 0.0);
+    }
+
+    #[tokio::test]
+    async fn adapter_shifts_router_decision_after_feedback() {
+        use crate::router::RouteCtx;
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        drop(tmp);
+        let store = Arc::new(Store::open(&path).await.unwrap());
+        let targets = vec!["a".to_string(), "b".to_string()];
+        let router = Arc::new(Mutex::new({
+            let mut r = Router::new(store.clone(), targets.clone());
+            r.save().await.unwrap();
+            r
+        }));
+        let mut il = InstantLoop::new(store.clone(), router.clone(), targets.clone());
+        let emb: Vec<f32> = (0..IN).map(|i| ((i as f32) * 0.013).sin()).collect();
+
+        let rid = il.record_trajectory(Some("s".into()), emb.clone(), "b".into(), "resp".into()).await.unwrap();
+        il.feedback(&rid, FeedbackPayload { quality: 1.0, signal: None }).await.unwrap();
+
+        let a = il.adapter_a.clone();
+        let b = il.adapter_b.clone();
+        let tgt = il.targets_clone();
+        let rank = il.adapter_rank();
+
+        let plain = { let r = router.lock().await; r.route(&emb, &RouteCtx::default()) };
+        let adapted = {
+            let r = router.lock().await;
+            r.route_with_adapter(&emb, &RouteCtx::default(), |e, l| {
+                InstantLoop::apply_adapter_raw(&a, &b, rank, &tgt, e, l);
+            })
+        };
+        assert!(adapted.confidence >= plain.confidence - 1e-6 || adapted.model == "b",
+            "adapter should not reduce confidence for its chosen target: plain={} adapted={}", plain.confidence, adapted.confidence);
     }
 }

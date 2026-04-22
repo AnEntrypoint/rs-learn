@@ -53,7 +53,7 @@ impl Orchestrator {
         let attention = Arc::new(Attention::new(store.clone()));
         let router = Arc::new(Mutex::new(Router::new(store.clone(), targets.clone())));
         let instant = Arc::new(Mutex::new(InstantLoop::new(store.clone(), router.clone(), targets.clone())));
-        let reasoning = Arc::new(ReasoningBank::new(store.clone()));
+        let reasoning = Arc::new(ReasoningBank::with_embedder(store.clone(), embedder.clone()));
         let acp = backend::from_env().map_err(|e| anyhow!("backend: {e}"))?;
         let rs_search = if std::env::var("RS_LEARN_CODE_SEARCH").is_ok() { Some(Arc::new(RsSearch::new())) } else { None };
         let search_root: PathBuf = std::env::var("RS_LEARN_SEARCH_ROOT").map(PathBuf::from)
@@ -127,7 +127,16 @@ impl Orchestrator {
             task_type: opts.task_type.clone(),
             estimated_tokens: opts.estimated_tokens.unwrap_or(text.len() as u64),
         };
-        let route = { let r = self.router.lock().await; r.route(&emb, &ctx) };
+        let route = {
+            let il_snapshot = {
+                let il = self.instant.lock().await;
+                (il.adapter_a.clone(), il.adapter_b.clone(), il.targets_clone(), il.adapter_rank())
+            };
+            let r = self.router.lock().await;
+            r.route_with_adapter(&emb, &ctx, |e, logits| {
+                InstantLoop::apply_adapter_raw(&il_snapshot.0, &il_snapshot.1, il_snapshot.3, &il_snapshot.2, e, logits);
+            })
+        };
         let route_model = route.model.clone();
         let confidence = route.confidence;
         let snapshot: RouteSnapshot = route.into();
