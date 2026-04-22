@@ -212,6 +212,34 @@ async fn search_with_stub_cross_encoder_reorders_hits() {
 }
 
 #[tokio::test]
+async fn search_all_fans_out_across_scopes() {
+    let (_dir, store) = open().await;
+    let now = now_ms();
+    store.insert_episode(&EpisodeRow {
+        id: "e1".into(), content: "alpha".into(), source: Some("text".into()),
+        created_at: Some(now), valid_at: Some(now), invalid_at: None,
+    }).await.unwrap();
+    store.insert_node(&NodeRow {
+        id: "n1".into(), name: "alpha".into(), r#type: None, summary: Some("".into()),
+        embedding: Some(vec![0.1; 768]), level: Some(0), created_at: Some(now),
+    }).await.unwrap();
+    store.insert_edge(&EdgeRow {
+        id: "ed1".into(), src: "n1".into(), dst: "n1".into(),
+        relation: Some("R".into()), fact: Some("alpha fact".into()),
+        embedding: Some(vec![0.1; 768]), weight: Some(1.0),
+        created_at: Some(now), valid_at: Some(now), invalid_at: None,
+    }).await.unwrap();
+    let embedder = Arc::new(Embedder::new());
+    let searcher = Searcher::new(store, embedder);
+    let cfg = SearchConfig { limit: 5, ..Default::default() };
+    let r = searcher.search_all("alpha", &cfg).await.unwrap();
+    assert!(!r.nodes.is_empty(), "nodes scope must return hit");
+    assert!(!r.edges.is_empty(), "edges scope must return hit");
+    assert!(!r.episodes.is_empty(), "episodes scope must return hit");
+    assert_eq!(r.communities.len(), 0, "no communities seeded");
+}
+
+#[tokio::test]
 async fn group_id_filter_cascade_delete() {
     let (_dir, store) = open().await;
     store.insert_episode(&EpisodeRow {

@@ -236,6 +236,15 @@ async fn post_search(State(s): State<HttpState>, Json(body): Json<SearchBody>) -
         ..Default::default()
     };
     let scope = body.scope.as_deref().unwrap_or("nodes");
+    if scope == "all" {
+        let r = s.searcher.search_all(&body.query, &cfg).await.map_err(|e| ise(e.to_string()))?;
+        return Ok(Json(json!({
+            "nodes": r.nodes,
+            "edges": r.edges,
+            "episodes": r.episodes,
+            "communities": r.communities,
+        })));
+    }
     let hits = match scope {
         "nodes" => s.searcher.search_nodes(&body.query, &cfg).await,
         "facts" | "edges" => s.searcher.search_facts(&body.query, &cfg).await,

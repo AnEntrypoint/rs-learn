@@ -48,6 +48,14 @@ pub struct SearchHit {
     pub row: HashMap<String, serde_json::Value>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchAll {
+    pub nodes: Vec<SearchHit>,
+    pub edges: Vec<SearchHit>,
+    pub episodes: Vec<SearchHit>,
+    pub communities: Vec<SearchHit>,
+}
+
 pub struct Searcher {
     pub store: Arc<Store>,
     pub embedder: Arc<Embedder>,
@@ -78,6 +86,21 @@ impl Searcher {
 
     pub async fn search_communities(&self, query: &str, cfg: &SearchConfig) -> Result<Vec<SearchHit>> {
         self.search_table("communities", query, cfg).await
+    }
+
+    pub async fn search_all(&self, query: &str, cfg: &SearchConfig) -> Result<SearchAll> {
+        let (nodes, edges, episodes, communities) = tokio::join!(
+            self.search_nodes(query, cfg),
+            self.search_facts(query, cfg),
+            self.search_episodes(query, cfg),
+            self.search_communities(query, cfg),
+        );
+        Ok(SearchAll {
+            nodes: nodes?,
+            edges: edges?,
+            episodes: episodes?,
+            communities: communities?,
+        })
     }
 
     async fn search_table(&self, table: &str, query: &str, cfg: &SearchConfig) -> Result<Vec<SearchHit>> {

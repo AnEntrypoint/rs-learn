@@ -121,7 +121,8 @@ impl McpServer {
                 let eid = self.ingestor.add_triplet(src, dst, &relation, &fact).await?;
                 Ok(json!({ "edge_id": eid }))
             }
-            "search" | "search_nodes" => self.do_search(args, "nodes").await,
+            "search" => self.do_search_all(args).await,
+            "search_nodes" => self.do_search(args, "nodes").await,
             "search_facts" => self.do_search(args, "facts").await,
             "search_episodes" => self.do_search(args, "episodes").await,
             "search_communities" => self.do_search(args, "communities").await,
@@ -150,6 +151,19 @@ impl McpServer {
             "debug_state" => Ok(crate::observability::dump()),
             other => Err(anyhow::anyhow!("unknown tool '{other}'")),
         }
+    }
+
+    async fn do_search_all(&self, args: Value) -> Result<Value> {
+        let query = str_arg(&args, "query")?;
+        let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+        let cfg = SearchConfig { limit, ..Default::default() };
+        let r = self.searcher.search_all(&query, &cfg).await?;
+        Ok(json!({
+            "nodes": r.nodes,
+            "edges": r.edges,
+            "episodes": r.episodes,
+            "communities": r.communities,
+        }))
     }
 
     async fn do_search(&self, args: Value, scope: &str) -> Result<Value> {
