@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+- graph: absorb remaining bungraph behaviour gaps.
+  - Per-scope unified search config via `SearchAllConfig { nodes, edges, episodes, communities }`; each scope carries its own `reranker`, `limit`, `use_vector`, `use_fts`, `mmr_lambda`. Old `Searcher::search_all(&SearchConfig)` still works (back-compat).
+  - `SearchConfig` gains `use_vector`, `use_fts`, `center_node_ids` fields; disabling both fails loud instead of silently returning empty.
+  - Reranker center auto-resolution: when `NodeDistance` reranker is selected without `center_node_id`/`center_node_ids`, searcher seeds top-3 centers from a vector query on nodes (matches bungraph search.js behaviour).
+  - `Store::graph_walk(start_ids, depth, group_id)` and `Store::edges_between(src, tgt, group_id, as_of)` — recursive-CTE neighborhood queries, bitemporal when `as_of` is set.
+  - Bulk and single-episode ingest now filter the prior-episode context window by `reference_time` (via `load_previous_episodes_before`) — re-ingesting historical episodes no longer leaks post-reference context back into extraction.
+  - MCP `search` tool and HTTP `POST /search` (with `scope=all`) accept optional `{nodes, edges, episodes, communities}` objects carrying `reranker`, `limit`, `use_vector`, `use_fts`, `mmr_lambda`; reranker names `rrf|mmr|node_distance|episode_mentions|cross_encoder`. Unknown reranker string returns a structured error.
+  - Shared ISO datetime helpers extracted to `src/graph/time.rs` (deduplicated from `http.rs` + `ingest.rs`).
 - graph: unified `search` surface (MCP tool + HTTP `/search` with `scope=all`) fans out across nodes, edges, episodes, communities in parallel via `Searcher::search_all` — closes last bungraph mcp.js parity gap.
 - Added `AgentBackend` trait and `ClaudeCliClient` (src/backend/claude_cli.rs): run `claude -p --output-format json` as an alternative to ACP stdio agents. Selection via `RS_LEARN_BACKEND=claude-cli|acp` or auto (ACP if `RS_LEARN_ACP_COMMAND` set, else claude-cli). Configurable model (`RS_LEARN_CLAUDE_MODEL`, default `haiku`), plugin dir (`RS_LEARN_CLAUDE_PLUGIN_DIR`), extra args (`RS_LEARN_CLAUDE_ARGS`). Prompt delivered via stdin to bypass Windows `.cmd` argv parsing.
 - Orchestrator and BackgroundLoop now hold `Arc<dyn AgentBackend>` instead of `Arc<AcpClient>`. `AcpClient` still exported for direct use; `AgentBackend` + `ClaudeCliClient` added to public API.

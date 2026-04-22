@@ -10,7 +10,7 @@ use super::entities::Entity;
 use super::ingest::Ingestor;
 use super::llm::LlmJson;
 use super::sagas::SagaOps;
-use super::search::{SearchConfig, Searcher};
+use super::search::{Reranker, SearchAllConfig, SearchConfig, Searcher};
 
 pub struct McpServer {
     pub store: Arc<Store>,
@@ -156,8 +156,26 @@ impl McpServer {
     async fn do_search_all(&self, args: Value) -> Result<Value> {
         let query = str_arg(&args, "query")?;
         let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
-        let cfg = SearchConfig { limit, ..Default::default() };
-        let r = self.searcher.search_all(&query, &cfg).await?;
+        let mut all = SearchAllConfig::all_defaults(limit);
+        if let Some(ids) = args.get("center_node_ids").and_then(|v| v.as_array()) {
+            all.center_node_ids = ids.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+        }
+        let build = |v: Option<&Value>, base_limit: usize| -> Result<Option<SearchConfig>> {
+            let Some(obj) = v.and_then(|v| v.as_object()) else { return Ok(None); };
+            let mut c = SearchConfig { limit: obj.get("limit").and_then(|v| v.as_u64()).map(|n| n as usize).unwrap_or(base_limit), ..Default::default() };
+            if let Some(r) = obj.get("reranker").and_then(|v| v.as_str()) {
+                c.reranker = parse_reranker_str(r)?;
+            }
+            if let Some(v) = obj.get("use_vector").and_then(|v| v.as_bool()) { c.use_vector = v; }
+            if let Some(v) = obj.get("use_fts").and_then(|v| v.as_bool()) { c.use_fts = v; }
+            if let Some(v) = obj.get("mmr_lambda").and_then(|v| v.as_f64()) { c.mmr_lambda = v as f32; }
+            Ok(Some(c))
+        };
+        if let Some(c) = build(args.get("nodes"), limit)? { all.nodes = Some(c); }
+        if let Some(c) = build(args.get("edges"), limit)? { all.edges = Some(c); }
+        if let Some(c) = build(args.get("episodes"), limit)? { all.episodes = Some(c); }
+        if let Some(c) = build(args.get("communities"), limit)? { all.communities = Some(c); }
+        let r = self.searcher.search_all_cfg(&query, &all).await?;
         Ok(json!({
             "nodes": r.nodes,
             "edges": r.edges,
@@ -269,4 +287,15 @@ fn tool_list() -> Vec<Value> {
         json!({"name":"delete_entity_node","inputSchema": schema(json!({"id": s()}), vec!["id"])}),
         json!({"name":"debug_state","inputSchema": schema(json!({}), vec![])}),
     ]
+}
+
+fn parse_reranker_str(s: &str) -> Result<Reranker> {
+    Ok(match s {
+        "rrf" => Reranker::Rrf,
+        "mmr" => Reranker::Mmr,
+        "node_distance" => Reranker::NodeDistance,
+        "episode_mentions" => Reranker::EpisodeMentions,
+        "cross_encoder" => Reranker::CrossEncoder,
+        other => anyhow::bail!("unknown reranker '{other}'"),
+    })
 }

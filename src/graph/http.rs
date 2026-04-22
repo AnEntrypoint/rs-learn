@@ -14,6 +14,7 @@ use tower_http::cors::CorsLayer;
 use super::ingest::Ingestor;
 use super::llm::LlmJson;
 use super::search::{SearchConfig, Searcher};
+use super::time::parse_iso_ms;
 
 const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
 
@@ -226,6 +227,50 @@ struct SearchBody {
     limit: Option<usize>,
     #[serde(default)]
     as_of: Option<String>,
+    #[serde(default)]
+    nodes: Option<ScopeBody>,
+    #[serde(default)]
+    edges: Option<ScopeBody>,
+    #[serde(default)]
+    episodes: Option<ScopeBody>,
+    #[serde(default)]
+    communities: Option<ScopeBody>,
+    #[serde(default)]
+    center_node_ids: Vec<String>,
+}
+
+#[derive(Deserialize, Clone)]
+struct ScopeBody {
+    #[serde(default)]
+    reranker: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    use_vector: Option<bool>,
+    #[serde(default)]
+    use_fts: Option<bool>,
+    #[serde(default)]
+    mmr_lambda: Option<f32>,
+}
+
+fn parse_reranker(s: &str) -> Result<super::search::Reranker, String> {
+    use super::search::Reranker::*;
+    Ok(match s {
+        "rrf" => Rrf, "mmr" => Mmr,
+        "node_distance" => NodeDistance,
+        "episode_mentions" => EpisodeMentions,
+        "cross_encoder" => CrossEncoder,
+        other => return Err(format!("unknown reranker '{other}'")),
+    })
+}
+
+fn scope_body_to_cfg(sb: &ScopeBody, default_limit: usize) -> Result<SearchConfig, String> {
+    let mut c = SearchConfig { limit: sb.limit.unwrap_or(default_limit), ..Default::default() };
+    if let Some(r) = &sb.reranker { c.reranker = parse_reranker(r)?; }
+    if let Some(v) = sb.use_vector { c.use_vector = v; }
+    if let Some(v) = sb.use_fts { c.use_fts = v; }
+    if let Some(v) = sb.mmr_lambda { c.mmr_lambda = v; }
+    Ok(c)
 }
 
 async fn post_search(State(s): State<HttpState>, Json(body): Json<SearchBody>) -> Result<Json<Value>, Problem> {
@@ -237,7 +282,22 @@ async fn post_search(State(s): State<HttpState>, Json(body): Json<SearchBody>) -
     };
     let scope = body.scope.as_deref().unwrap_or("nodes");
     if scope == "all" {
-        let r = s.searcher.search_all(&body.query, &cfg).await.map_err(|e| ise(e.to_string()))?;
+        let limit = body.limit.unwrap_or(10);
+        let mut all = super::search::SearchAllConfig::all_defaults(limit);
+        all.as_of = cfg.as_of;
+        all.center_node_ids = body.center_node_ids.clone();
+        let apply = |slot: &mut Option<SearchConfig>, sb: Option<&ScopeBody>| -> Result<(), Problem> {
+            if let Some(sb) = sb {
+                let built = scope_body_to_cfg(sb, limit).map_err(bad)?;
+                *slot = Some(SearchConfig { as_of: cfg.as_of, ..built });
+            }
+            Ok(())
+        };
+        apply(&mut all.nodes, body.nodes.as_ref())?;
+        apply(&mut all.edges, body.edges.as_ref())?;
+        apply(&mut all.episodes, body.episodes.as_ref())?;
+        apply(&mut all.communities, body.communities.as_ref())?;
+        let r = s.searcher.search_all_cfg(&body.query, &all).await.map_err(|e| ise(e.to_string()))?;
         return Ok(Json(json!({
             "nodes": r.nodes,
             "edges": r.edges,
@@ -268,27 +328,4 @@ async fn post_build_communities(State(s): State<HttpState>) -> Result<Json<Value
     let ops = CommunityOps::new(s.store.clone(), s.embedder.clone(), llm);
     let r = ops.build_communities().await.map_err(|e| ise(e.to_string()))?;
     Ok(Json(json!({ "communities": r.community_count, "members": r.member_count })))
-}
-
-fn parse_iso_ms(s: &str) -> Option<i64> {
-    let s = s.trim();
-    if s.len() < 19 { return None; }
-    let b = s.as_bytes();
-    let year: i64 = std::str::from_utf8(&b[0..4]).ok()?.parse().ok()?;
-    let month: i64 = std::str::from_utf8(&b[5..7]).ok()?.parse().ok()?;
-    let day: i64 = std::str::from_utf8(&b[8..10]).ok()?.parse().ok()?;
-    let hour: i64 = std::str::from_utf8(&b[11..13]).ok()?.parse().ok()?;
-    let minute: i64 = std::str::from_utf8(&b[14..16]).ok()?.parse().ok()?;
-    let second: i64 = std::str::from_utf8(&b[17..19]).ok()?.parse().ok()?;
-    let days = days_from_civil(year, month, day);
-    Some(days * 86_400_000 + hour * 3_600_000 + minute * 60_000 + second * 1_000)
-}
-
-fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = if y >= 0 { y } else { y - 399 } / 400;
-    let yoe = (y - era * 400) as u64;
-    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) as u64 / 5 + d as u64 - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146097 + doe as i64 - 719468
 }

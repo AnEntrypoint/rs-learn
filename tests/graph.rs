@@ -240,6 +240,87 @@ async fn search_all_fans_out_across_scopes() {
 }
 
 #[tokio::test]
+async fn graph_walk_follows_edges_by_depth() {
+    let (_dir, store) = open().await;
+    let now = now_ms();
+    for id in ["a","b","c"] {
+        store.insert_node(&NodeRow {
+            id: id.into(), name: id.into(), r#type: None, summary: Some("".into()),
+            embedding: Some(vec![0.1; 768]), level: Some(0), created_at: Some(now),
+        }).await.unwrap();
+    }
+    store.insert_edge(&EdgeRow {
+        id: "ab".into(), src: "a".into(), dst: "b".into(),
+        relation: Some("R".into()), fact: Some("".into()),
+        embedding: None, weight: Some(1.0),
+        created_at: Some(now), valid_at: Some(now), invalid_at: None,
+    }).await.unwrap();
+    store.insert_edge(&EdgeRow {
+        id: "bc".into(), src: "b".into(), dst: "c".into(),
+        relation: Some("R".into()), fact: Some("".into()),
+        embedding: None, weight: Some(1.0),
+        created_at: Some(now), valid_at: Some(now), invalid_at: None,
+    }).await.unwrap();
+    let ns1 = store.graph_walk(&["a".to_string()], 1, None).await.unwrap();
+    let ids1: Vec<String> = ns1.iter().map(|n| n.id.clone()).collect();
+    assert!(ids1.contains(&"b".to_string()), "depth 1 must reach b: {:?}", ids1);
+    assert!(!ids1.contains(&"c".to_string()), "depth 1 must NOT reach c: {:?}", ids1);
+    let ns2 = store.graph_walk(&["a".to_string()], 2, None).await.unwrap();
+    let ids2: Vec<String> = ns2.iter().map(|n| n.id.clone()).collect();
+    assert!(ids2.contains(&"c".to_string()), "depth 2 must reach c: {:?}", ids2);
+    let between = store.edges_between(&["a".to_string()], &["b".to_string()], None, None).await.unwrap();
+    assert_eq!(between.len(), 1);
+    assert_eq!(between[0].id, "ab");
+}
+
+#[tokio::test]
+async fn per_scope_search_respects_use_fts_toggle() {
+    let (_dir, store) = open().await;
+    let now = now_ms();
+    store.insert_node(&NodeRow {
+        id: "n1".into(), name: "alpha".into(), r#type: None, summary: Some("".into()),
+        embedding: Some(vec![0.2; 768]), level: Some(0), created_at: Some(now),
+    }).await.unwrap();
+    let embedder = Arc::new(Embedder::new());
+    let searcher = Searcher::new(store, embedder);
+    let mut all = rs_learn::graph::search::SearchAllConfig::all_defaults(5);
+    if let Some(c) = all.nodes.as_mut() { c.use_fts = false; }
+    if let Some(c) = all.edges.as_mut() { c.use_fts = false; }
+    if let Some(c) = all.episodes.as_mut() { c.use_fts = false; }
+    if let Some(c) = all.communities.as_mut() { c.use_fts = false; }
+    let r = searcher.search_all_cfg("alpha", &all).await.unwrap();
+    assert!(!r.nodes.is_empty(), "vector-only search must still return node hit");
+}
+
+#[tokio::test]
+async fn both_toggles_off_fails_loud() {
+    let (_dir, store) = open().await;
+    let embedder = Arc::new(Embedder::new());
+    let searcher = Searcher::new(store, embedder);
+    let cfg = SearchConfig { limit: 5, use_vector: false, use_fts: false, ..Default::default() };
+    let err = searcher.search_nodes("x", &cfg).await.unwrap_err();
+    assert!(err.to_string().contains("both use_vector and use_fts disabled"));
+}
+
+#[tokio::test]
+async fn bulk_ingest_context_respects_reference_time() {
+    let (_dir, store) = open().await;
+    store.insert_episode(&EpisodeRow {
+        id: "old".into(), content: "OLD".into(), source: Some("text".into()),
+        created_at: Some(100), valid_at: Some(100), invalid_at: None,
+    }).await.unwrap();
+    store.insert_episode(&EpisodeRow {
+        id: "new".into(), content: "NEW".into(), source: Some("text".into()),
+        created_at: Some(1_000_000_000_000), valid_at: Some(1_000_000_000_000), invalid_at: None,
+    }).await.unwrap();
+    let embedder = Arc::new(Embedder::new());
+    let backend = StubBackend::new(vec![ json!({ "extracted_entities": [] }) ]);
+    let llm = Arc::new(LlmJson::with_limits(backend, 1, 5000, 1000));
+    let ingestor = Ingestor::new(store.clone(), embedder, llm);
+    let _ = ingestor.add_episode("mid", "text", Some("1970-01-01T00:01:00.000Z")).await.unwrap();
+}
+
+#[tokio::test]
 async fn group_id_filter_cascade_delete() {
     let (_dir, store) = open().await;
     store.insert_episode(&EpisodeRow {

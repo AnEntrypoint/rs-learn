@@ -26,7 +26,15 @@ pub struct SearchConfig {
     pub reranker: Reranker,
     pub as_of: Option<i64>,
     pub center_node_id: Option<String>,
+    #[serde(default = "default_true")]
+    pub use_vector: bool,
+    #[serde(default = "default_true")]
+    pub use_fts: bool,
+    #[serde(default)]
+    pub center_node_ids: Vec<String>,
 }
+
+fn default_true() -> bool { true }
 
 impl Default for SearchConfig {
     fn default() -> Self {
@@ -37,6 +45,33 @@ impl Default for SearchConfig {
             reranker: Reranker::Rrf,
             as_of: None,
             center_node_id: None,
+            use_vector: true,
+            use_fts: true,
+            center_node_ids: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SearchAllConfig {
+    pub nodes: Option<SearchConfig>,
+    pub edges: Option<SearchConfig>,
+    pub episodes: Option<SearchConfig>,
+    pub communities: Option<SearchConfig>,
+    pub as_of: Option<i64>,
+    pub center_node_ids: Vec<String>,
+}
+
+impl SearchAllConfig {
+    pub fn all_defaults(limit: usize) -> Self {
+        let base = SearchConfig { limit, ..Default::default() };
+        Self {
+            nodes: Some(base.clone()),
+            edges: Some(base.clone()),
+            episodes: Some(base.clone()),
+            communities: Some(SearchConfig { limit: limit.min(3).max(1), ..base }),
+            as_of: None,
+            center_node_ids: Vec::new(),
         }
     }
 }
@@ -89,29 +124,54 @@ impl Searcher {
     }
 
     pub async fn search_all(&self, query: &str, cfg: &SearchConfig) -> Result<SearchAll> {
-        let (nodes, edges, episodes, communities) = tokio::join!(
-            self.search_nodes(query, cfg),
-            self.search_facts(query, cfg),
-            self.search_episodes(query, cfg),
-            self.search_communities(query, cfg),
-        );
-        Ok(SearchAll {
-            nodes: nodes?,
-            edges: edges?,
-            episodes: episodes?,
-            communities: communities?,
-        })
+        let all = SearchAllConfig {
+            nodes: Some(cfg.clone()),
+            edges: Some(cfg.clone()),
+            episodes: Some(cfg.clone()),
+            communities: Some(cfg.clone()),
+            as_of: cfg.as_of,
+            center_node_ids: cfg.center_node_ids.clone(),
+        };
+        self.search_all_cfg(query, &all).await
+    }
+
+    pub async fn search_all_cfg(&self, query: &str, all: &SearchAllConfig) -> Result<SearchAll> {
+        let merge = |mut c: SearchConfig| -> SearchConfig {
+            if c.as_of.is_none() { c.as_of = all.as_of; }
+            if c.center_node_ids.is_empty() && !all.center_node_ids.is_empty() {
+                c.center_node_ids = all.center_node_ids.clone();
+            }
+            c
+        };
+        let empty: Vec<SearchHit> = Vec::new();
+        let nodes_f = async {
+            match all.nodes.as_ref() { Some(c) => self.search_nodes(query, &merge(c.clone())).await, None => Ok(empty.clone()) }
+        };
+        let edges_f = async {
+            match all.edges.as_ref() { Some(c) => self.search_facts(query, &merge(c.clone())).await, None => Ok(empty.clone()) }
+        };
+        let episodes_f = async {
+            match all.episodes.as_ref() { Some(c) => self.search_episodes(query, &merge(c.clone())).await, None => Ok(empty.clone()) }
+        };
+        let communities_f = async {
+            match all.communities.as_ref() { Some(c) => self.search_communities(query, &merge(c.clone())).await, None => Ok(empty.clone()) }
+        };
+        let (nodes, edges, episodes, communities) = tokio::join!(nodes_f, edges_f, episodes_f, communities_f);
+        Ok(SearchAll { nodes: nodes?, edges: edges?, episodes: episodes?, communities: communities? })
     }
 
     async fn search_table(&self, table: &str, query: &str, cfg: &SearchConfig) -> Result<Vec<SearchHit>> {
+        if !cfg.use_vector && !cfg.use_fts {
+            anyhow::bail!("search_table: both use_vector and use_fts disabled");
+        }
         let emb = self.embedder.embed(query).unwrap_or_default();
         let k_fetch = (cfg.limit * 3).max(10);
-        let vec_rows = if emb.is_empty() {
-            vec![]
-        } else {
+        let vec_rows = if cfg.use_vector && !emb.is_empty() {
             self.store.vector_top_k(table, &emb, k_fetch, None).await.unwrap_or_default()
-        };
-        let fts_rows = self.store.fts_search(table, query, k_fetch).await.unwrap_or_default();
+        } else { vec![] };
+        let fts_rows = if cfg.use_fts {
+            self.store.fts_search(table, query, k_fetch).await.unwrap_or_default()
+        } else { vec![] };
         let fused = rrf_fuse(&vec_rows, &fts_rows, cfg.rrf_k);
         let hits: Vec<SearchHit> = fused
             .into_iter()
@@ -121,12 +181,19 @@ impl Searcher {
                 row: row_to_json_map(&row),
             })
             .collect();
-        match cfg.reranker {
-            Reranker::Rrf => Ok(hits.into_iter().take(cfg.limit).collect()),
-            Reranker::Mmr => Ok(mmr(hits, cfg.limit, cfg.mmr_lambda, &emb)),
-            Reranker::NodeDistance => Ok(self.node_distance_rerank(hits, cfg).await),
-            Reranker::EpisodeMentions => Ok(self.episode_mentions_rerank(hits, cfg.limit).await),
-            Reranker::CrossEncoder => Ok(self.cross_encoder_rerank(query, hits, cfg.limit).await),
+        let mut effective = cfg.clone();
+        if matches!(effective.reranker, Reranker::NodeDistance)
+            && effective.center_node_ids.is_empty()
+            && effective.center_node_id.is_none()
+        {
+            effective.center_node_ids = self.auto_resolve_centers(query, 3).await;
+        }
+        match effective.reranker {
+            Reranker::Rrf => Ok(hits.into_iter().take(effective.limit).collect()),
+            Reranker::Mmr => Ok(mmr(hits, effective.limit, effective.mmr_lambda, &emb)),
+            Reranker::NodeDistance => Ok(self.node_distance_rerank(hits, &effective).await),
+            Reranker::EpisodeMentions => Ok(self.episode_mentions_rerank(hits, effective.limit).await),
+            Reranker::CrossEncoder => Ok(self.cross_encoder_rerank(query, hits, effective.limit).await),
         }
     }
 
@@ -145,12 +212,28 @@ impl Searcher {
             .collect()
     }
 
+    async fn resolve_centers(&self, cfg: &SearchConfig) -> Vec<String> {
+        if !cfg.center_node_ids.is_empty() { return cfg.center_node_ids.clone(); }
+        if let Some(id) = cfg.center_node_id.as_deref() { return vec![id.to_string()]; }
+        Vec::new()
+    }
+
+    async fn auto_resolve_centers(&self, query: &str, k: usize) -> Vec<String> {
+        let emb = self.embedder.embed(query).unwrap_or_default();
+        if emb.is_empty() { return Vec::new(); }
+        let rows = self.store.vector_top_k("nodes", &emb, k, None).await.unwrap_or_default();
+        rows.into_iter()
+            .filter_map(|r| r.get("id").and_then(|v| match v { libsql::Value::Text(s) => Some(s.clone()), _ => None }))
+            .collect()
+    }
+
     async fn node_distance_rerank(&self, hits: Vec<SearchHit>, cfg: &SearchConfig) -> Vec<SearchHit> {
-        let Some(center) = cfg.center_node_id.as_deref() else {
+        let centers = self.resolve_centers(cfg).await;
+        let Some(center) = centers.first().cloned() else {
             return hits.into_iter().take(cfg.limit).collect();
         };
         let ids: Vec<String> = hits.iter().map(|h| h.id.clone()).collect();
-        let distances = self.shortest_hops(center, &ids).await;
+        let distances = self.shortest_hops(&center, &ids).await;
         let mut scored: Vec<(SearchHit, f32)> = hits
             .into_iter()
             .map(|h| {
