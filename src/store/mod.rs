@@ -45,6 +45,9 @@ impl Store {
         for q in schema::TABLES {
             self.conn.execute(q, ()).await?;
         }
+        for a in schema::ALTERS_V2 {
+            let _ = self.conn.execute(a, ()).await;
+        }
         for t in schema::TRIGGERS {
             self.conn.execute(t, ()).await?;
         }

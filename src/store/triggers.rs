@@ -39,4 +39,14 @@ pub const TRIGGERS: &[&str] = &[
         DELETE FROM reasoning_fts WHERE id=old.id;
         INSERT INTO reasoning_fts(id,strategy) VALUES(new.id,new.strategy);
     END",
+    "CREATE TRIGGER IF NOT EXISTS communities_ai AFTER INSERT ON communities BEGIN
+        INSERT INTO communities_fts(id,name,summary) VALUES(new.id,new.name,COALESCE(new.summary,''));
+    END",
+    "CREATE TRIGGER IF NOT EXISTS communities_ad AFTER DELETE ON communities BEGIN
+        DELETE FROM communities_fts WHERE id=old.id;
+    END",
+    "CREATE TRIGGER IF NOT EXISTS communities_au AFTER UPDATE ON communities BEGIN
+        DELETE FROM communities_fts WHERE id=old.id;
+        INSERT INTO communities_fts(id,name,summary) VALUES(new.id,new.name,COALESCE(new.summary,''));
+    END",
 ];
