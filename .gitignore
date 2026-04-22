@@ -39,3 +39,7 @@ bin/*.exe
 CLAUDE.md
 .rustup.log
 docs/data/
+.plugkit-browser-profile/
+.plugkit-browser-profile-*/
+.plugkit-agent-worktree/
+*.stackdump
