@@ -5,3 +5,4 @@ pub mod edges;
 pub mod ingest;
 pub mod search;
 pub mod recipes;
+pub mod communities;
