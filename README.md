@@ -1,6 +1,6 @@
 # rs-learn
 
-A continual-learning orchestrator wrapped around any [Agent Client Protocol](https://agentclientprotocol.com) stdio agent. Gives an otherwise-stateless ACP agent persistent memory, adaptive routing, and three background learning loops that compress trajectories into reusable strategies and exportable LoRA / DPO training artefacts.
+A continual-learning orchestrator wrapped around any [Agent Client Protocol](https://agentclientprotocol.com) stdio agent. Gives an otherwise-stateless ACP agent persistent memory, adaptive routing, and learning loops that compress trajectories into reusable strategies and exportable LoRA / DPO training artefacts.
 
 **Pure Rust.** Single binary, no Node, no npm.
 
@@ -10,11 +10,11 @@ Layers:
 - **HNSW-equivalent** ANN over libsql `vector_top_k`, M=32 level sampling
 - **8-head graph attention** with edge features (relation one-hot + recency decay + weight)
 - **FastGRNN router** — sparse (90%) + low-rank (rank-8) matrices, softmax over ACP targets + context bucket + temperature + topP + confidence
-- **Three rs-learn loops**:
-  - **Instant (per-request)** — trajectory capture + rank-2 MicroLoRA Hebbian adapter
-  - **Background (hourly)** — k-means++ pattern extraction + BaseLoRA via router retrain + ACP-summarized reasoning bank
-  - **Deep (weekly)** — EWC++ consolidation with online Fisher information (EMA decay 0.999)
-- **Federated** — EphemeralAgent + FederatedCoordinator (quality-filtered 50k pool)
+- **Learning loops**:
+  - **Instant (per-request, always on)** — trajectory capture + rank-2 MicroLoRA Hebbian adapter, norm-bounded to prevent runaway; logits fed into the router's softmax head on every route
+  - **Background (opt-in via `RS_LEARN_BG_INTERVAL_SEC=N`)** — k-means++ pattern extraction, LLM-summarized reasoning bank, softmax cross-entropy router retrain on quality≥0.7 trajectories, router weights persisted after each run
+  - **Deep (library-only, not yet scheduled)** — `DeepLoop` (EWC++ with online Fisher EMA decay 0.999 + z-score boundary detection) ships as a callable module; no default scheduler wires it into the orchestrator yet
+- **Federated (library-only, not yet wired)** — `EphemeralAgent` + `FederatedCoordinator` (quality-filtered 50k pool) are implemented and tested but not constructed by `Orchestrator::new_default`; callers wire them explicitly when needed
 - **Observability** — HTTP `/debug/<subsystem>` per subsystem, structured tracing
 - **Exports** — safetensors router weights, patterns.jsonl, preferences.jsonl (DPO), HF push
 
@@ -105,7 +105,8 @@ Live E2E mode requires `RS_LEARN_ACP_LIVE=1`; otherwise the orchestrator uses th
 | `RS_LEARN_ENTITY_TYPES_JSON` | — | override default entity-type schema JSON for LLM extraction |
 | `RS_LEARN_EDGE_TYPES_JSON` | — | override default edge-type schema JSON for LLM extraction |
 | `RS_LEARN_SAGA_SUMMARY_EVERY` | `10` | auto-summarize saga every N episodes (0 = never) |
-| `RS_LEARN_EWC_LAMBDA` | `2000` | EWC++ regularization strength (100–15000) |
+| `RS_LEARN_BG_INTERVAL_SEC` | `0` (off) | if >0, `Orchestrator::new_default` spawns the background learning loop on this interval |
+| `RS_LEARN_EWC_LAMBDA` | `2000` | EWC++ regularization strength (100–15000) — only consulted when `DeepLoop` is wired explicitly |
 | `RS_LEARN_LLM_TIMEOUT_MS` | `120000` | per-turn timeout |
 | `RS_LEARN_DEBUG_ACP` | — | log ACP stderr |
 | `HF_TOKEN` | — | Hugging Face token for `push_to_hugging_face` |
@@ -119,16 +120,15 @@ curl http://127.0.0.1:7878/debug              # all subsystems
 curl http://127.0.0.1:7878/debug/acp          # ACP state
 curl http://127.0.0.1:7878/debug/router       # router state
 curl http://127.0.0.1:7878/debug/memory       # memory stats
-curl http://127.0.0.1:7878/debug/learn-bg     # background loop
-curl http://127.0.0.1:7878/debug/learn-deep   # deep loop
+curl http://127.0.0.1:7878/debug/instant      # instant loop adapter + pending
+curl http://127.0.0.1:7878/debug/background   # background loop run count + last stats (when RS_LEARN_BG_INTERVAL_SEC>0)
 curl http://127.0.0.1:7878/debug/store        # store table counts
 curl http://127.0.0.1:7878/debug/attention    # attention head stats
 curl http://127.0.0.1:7878/debug/reasoning    # reasoning bank
-curl http://127.0.0.1:7878/debug/federated    # federated pool
 curl http://127.0.0.1:7878/debug/graph        # graph ingest/search/llm counters
 ```
 
-Every subsystem (store, memory, router, attention, instant/bg/deep loops, reasoning-bank, federated, acp, orchestrator, rs-search) registers into the debug registry on construction.
+`/debug/learn-deep` and `/debug/federated` register only when the caller constructs `DeepLoop` or `FederatedCoordinator` explicitly — the default orchestrator does not.
 
 ## Tests
 
