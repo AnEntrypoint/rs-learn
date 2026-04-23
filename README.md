@@ -14,7 +14,6 @@ Layers:
   - **Instant (per-request, always on)** — trajectory capture + rank-2 MicroLoRA Hebbian adapter, norm-bounded to prevent runaway; logits fed into the router's softmax head on every route
   - **Background (opt-in via `RS_LEARN_BG_INTERVAL_SEC=N`)** — k-means++ pattern extraction, LLM-summarized reasoning bank, softmax cross-entropy router retrain on quality≥0.7 trajectories, router weights persisted after each run
   - **Deep (library-only, not yet scheduled)** — `DeepLoop` (EWC++ with online Fisher EMA decay 0.999 + z-score boundary detection) ships as a callable module; no default scheduler wires it into the orchestrator yet
-- **Federated (library-only, not yet wired)** — `EphemeralAgent` + `FederatedCoordinator` (quality-filtered 50k pool) are implemented and tested but not constructed by `Orchestrator::new_default`; callers wire them explicitly when needed
 - **Observability** — HTTP `/debug/<subsystem>` per subsystem, structured tracing
 - **Exports** — safetensors router weights, patterns.jsonl, preferences.jsonl (DPO), HF push
 
@@ -128,7 +127,7 @@ curl http://127.0.0.1:7878/debug/reasoning    # reasoning bank
 curl http://127.0.0.1:7878/debug/graph        # graph ingest/search/llm counters
 ```
 
-`/debug/learn-deep` and `/debug/federated` register only when the caller constructs `DeepLoop` or `FederatedCoordinator` explicitly — the default orchestrator does not.
+`/debug/deep` registers when the orchestrator wires the deep loop (default: on, via `Orchestrator::new_default`).
 
 ## Tests
 

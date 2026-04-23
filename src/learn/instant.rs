@@ -168,6 +168,19 @@ impl InstantLoop {
     }
 
     pub async fn record_trajectory(&mut self, session_id: Option<String>, embedding: Vec<f32>, route_model: String, response: String) -> Result<RequestId> {
+        self.record_trajectory_full(session_id, embedding, route_model, response, None, None, 0).await
+    }
+
+    pub async fn record_trajectory_full(
+        &mut self,
+        session_id: Option<String>,
+        embedding: Vec<f32>,
+        route_model: String,
+        response: String,
+        query_text: Option<String>,
+        implicit_quality: Option<f64>,
+        latency_ms: u64,
+    ) -> Result<RequestId> {
         if embedding.len() != IN { return Err(anyhow!("embedding must be {IN}-d")); }
         self.gc_pending();
         let request_id = Uuid::new_v4().to_string();
@@ -176,14 +189,14 @@ impl InstantLoop {
         let row = TrajectoryRow {
             id: request_id.clone(),
             session_id: session_id.clone(),
-            query: None,
+            query: query_text,
             query_embedding: Some(embedding.clone()),
             retrieved_ids: None,
             router_decision: Some(decision),
             response: Some(response),
             activations: None,
-            quality: None,
-            latency_ms: Some(0),
+            quality: implicit_quality,
+            latency_ms: Some(latency_ms as i64),
             created_at: Some(created_ms),
         };
         match self.spine.as_ref() {
@@ -260,6 +273,25 @@ mod tests {
         let mut logits = vec![0f32; 2];
         il.apply_adapter(&vec![0.05f32; IN], &mut logits);
         assert!(logits[0].abs() + logits[1].abs() > 0.0);
+    }
+
+    #[tokio::test]
+    async fn record_trajectory_full_persists_query_and_quality() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        drop(tmp);
+        let store = Arc::new(Store::open(&path).await.unwrap());
+        let targets = vec!["a".to_string()];
+        let router = Arc::new(Mutex::new(Router::new(store.clone(), targets.clone())));
+        let mut il = InstantLoop::new(store.clone(), router, targets);
+        let emb = vec![0.03f32; IN];
+        il.record_trajectory_full(Some("s".into()), emb, "a".into(), "resp".into(),
+            Some("why is the sky blue".into()), Some(0.85), 42).await.unwrap();
+        let rows = store.list_recent_trajectories_with_embeddings(10).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].query.as_deref(), Some("why is the sky blue"));
+        assert_eq!(rows[0].quality, Some(0.85));
+        assert_eq!(rows[0].latency_ms, Some(42));
     }
 
     #[tokio::test]

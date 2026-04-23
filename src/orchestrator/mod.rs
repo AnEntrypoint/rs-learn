@@ -7,6 +7,7 @@ use crate::attention::Attention;
 use crate::cache::EmbeddingCache;
 use crate::embeddings::Embedder;
 use crate::learn::background::BackgroundLoop;
+use crate::learn::deep::DeepLoop;
 use crate::learn::instant::{FeedbackPayload, InstantLoop};
 use crate::learn::reasoning_bank::ReasoningBank;
 use crate::memory::Memory;
@@ -40,6 +41,7 @@ pub struct Orchestrator {
     pub embed_cache: Option<Arc<EmbeddingCache>>,
     pub spine: Option<Arc<TrajectorySpine>>,
     pub background: Option<Arc<BackgroundLoop>>,
+    pub deep: Arc<Mutex<DeepLoop>>,
     bg_task: std::sync::Mutex<Option<JoinHandle<()>>>,
     queries: Arc<AtomicU64>,
     total_ms: Arc<AtomicU64>,
@@ -73,6 +75,7 @@ impl Orchestrator {
             il.spine = Some(s.clone());
         }
         let background = BackgroundLoop::new(store.clone(), router.clone(), Some(acp.clone()), reasoning.clone(), Some(instant.clone()));
+        let deep = Arc::new(Mutex::new(DeepLoop::new(store.clone())));
         let bg_task = match std::env::var("RS_LEARN_BG_INTERVAL_SEC").ok().and_then(|s| s.parse::<u64>().ok()).filter(|&n| n > 0) {
             Some(secs) => Some(tokio::spawn(background.clone().schedule(Duration::from_secs(secs)))),
             None => None,
@@ -95,6 +98,7 @@ impl Orchestrator {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             store, search_root, embed_cache, spine,
             background: Some(background),
+            deep,
             bg_task: std::sync::Mutex::new(bg_task),
             queries, total_ms,
         })
@@ -181,15 +185,16 @@ impl Orchestrator {
 
         let t_l = Instant::now();
         let response_str = if let Value::String(s) = &response { s.clone() } else { response.to_string() };
+        let latency_ms = t0.elapsed().as_millis() as u64;
+        let implicit_quality = Some(implicit_quality_from(latency_ms, response_str.len(), confidence));
         let request_id = {
             let mut il = self.instant.lock().await;
-            il.record_trajectory(Some(sid.clone()), emb.clone(), route_model, response_str).await?
+            il.record_trajectory_full(Some(sid.clone()), emb.clone(), route_model, response_str, Some(text.to_string()), implicit_quality, latency_ms).await?
         };
         stages.insert("learn".into(), t_l.elapsed().as_millis() as u64);
 
         { let mut map = self.sessions.write().await;
           if let Some(s) = map.get_mut(&sid) { s.last_embedding = Some(emb); } }
-        let latency_ms = t0.elapsed().as_millis() as u64;
         self.queries.fetch_add(1, Ordering::Relaxed);
         self.total_ms.fetch_add(latency_ms, Ordering::Relaxed);
 
@@ -200,9 +205,26 @@ impl Orchestrator {
     }
 
     pub async fn feedback(&self, request_id: &str, payload: FeedbackPayload) -> Result<()> {
-        let mut il = self.instant.lock().await;
-        il.feedback(request_id, payload).await
+        let loss = (1.0 - payload.quality).max(0.0);
+        let boundary = {
+            let mut dl = self.deep.lock().await;
+            dl.record_loss(loss).await.unwrap_or(false)
+        };
+        {
+            let mut il = self.instant.lock().await;
+            il.feedback(request_id, payload).await?;
+            if boundary { il.reset_adapter(); }
+        }
+        Ok(())
     }
+}
+
+fn implicit_quality_from(latency_ms: u64, response_len: usize, confidence: f32) -> f64 {
+    let latency_score = (5000.0f64 - (latency_ms as f64).min(5000.0)) / 5000.0;
+    let length_score = ((response_len as f64) / 500.0).min(1.0);
+    let conf = confidence.clamp(0.0, 1.0) as f64;
+    let q = 0.4 * latency_score + 0.3 * length_score + 0.3 * conf;
+    q.clamp(0.0, 1.0)
 }
 
 impl Drop for Orchestrator {
@@ -211,5 +233,22 @@ impl Drop for Orchestrator {
             if let Some(h) = g.take() { h.abort(); }
         }
         observability::unregister("orchestrator");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::implicit_quality_from;
+    #[test]
+    fn implicit_quality_rewards_fast_confident_responses() {
+        let fast_conf = implicit_quality_from(200, 800, 0.9);
+        let slow_unconf = implicit_quality_from(4800, 20, 0.1);
+        assert!(fast_conf > 0.7, "fast confident should be high, got {fast_conf}");
+        assert!(slow_unconf < 0.3, "slow unconfident should be low, got {slow_unconf}");
+    }
+    #[test]
+    fn implicit_quality_clamps_to_unit() {
+        assert!((0.0..=1.0).contains(&implicit_quality_from(0, 10_000, 1.0)));
+        assert!((0.0..=1.0).contains(&implicit_quality_from(u64::MAX, 0, -1.0)));
     }
 }

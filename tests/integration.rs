@@ -9,7 +9,6 @@ use std::sync::Arc;
 use rs_learn::attention::{Attention, Subgraph, SubgraphEdge, SubgraphNode};
 use rs_learn::embeddings::{Embedder, EMBED_DIM};
 use rs_learn::export::{export_patterns, export_preferences, export_safetensors, push_to_hugging_face};
-use rs_learn::federated::{EphemeralAgent, FederatedCoordinator, Trajectory as FedTraj};
 use rs_learn::learn::background::{kmeans_centroids, kmeans_plus_plus, BackgroundLoop};
 use rs_learn::learn::deep::DeepLoop;
 use rs_learn::learn::instant::{FeedbackPayload, InstantLoop};
@@ -230,42 +229,6 @@ async fn section_07_reasoning_bank_fts_retrieve_and_top() {
     assert!(hits.len() >= 2, "FTS must find at least 2 matching rows, got {}", hits.len());
     let top = bank.top_strategies(10).await.expect("top");
     assert_eq!(top[0].id, "r1", "highest success_rate row must be first");
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 8. Federated — quality filter + consolidation interval.
-// ─────────────────────────────────────────────────────────────────────────────
-#[tokio::test]
-async fn section_08_federated_quality_filter_and_consolidation() {
-    let mut a1 = EphemeralAgent::new("a1");
-    for _ in 0..5 {
-        a1.record(FedTraj {
-            agent_id: "a1".into(), embedding: rand_emb(1), quality: 0.8,
-            timestamp: 0, meta: serde_json::Value::Null,
-        });
-    }
-    let coord = FederatedCoordinator::new(50_000, 0.4, 2);
-    let r1 = coord.aggregate(a1.export_state());
-    assert!(r1.accepted >= 1, "first aggregate must accept high-quality");
-
-    let mut a2 = EphemeralAgent::new("a2");
-    for _ in 0..3 {
-        a2.record(FedTraj {
-            agent_id: "a2".into(), embedding: rand_emb(2), quality: 0.2,
-            timestamp: 0, meta: serde_json::Value::Null,
-        });
-    }
-    for _ in 0..2 {
-        a2.record(FedTraj {
-            agent_id: "a2".into(), embedding: rand_emb(3), quality: 0.9,
-            timestamp: 0, meta: serde_json::Value::Null,
-        });
-    }
-    let r2 = coord.aggregate(a2.export_state());
-    assert_eq!(r2.accepted, 2, "only quality≥0.4 trajectories accepted");
-    assert!(coord.consolidations() >= 1, "consolidation must trigger at interval");
-    let shared = coord.share_patterns();
-    assert!(shared.iter().all(|t| t.quality >= 0.4), "shared pool must respect threshold");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

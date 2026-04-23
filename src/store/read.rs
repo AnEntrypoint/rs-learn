@@ -154,7 +154,7 @@ impl Store {
     }
 
     pub async fn list_recent_trajectories_with_embeddings(&self, limit: usize) -> Result<Vec<super::types::TrajectoryRow>> {
-        let sql = "SELECT id, session_id, query, vector_extract(query_embedding) AS emb, router_decision, quality, created_at
+        let sql = "SELECT id, session_id, query, vector_extract(query_embedding) AS emb, router_decision, quality, latency_ms, created_at
                    FROM trajectories
                    WHERE query_embedding IS NOT NULL
                    ORDER BY created_at DESC LIMIT ?1";
@@ -173,8 +173,8 @@ impl Store {
                 response: None,
                 activations: None,
                 quality: row.get::<f64>(5).ok(),
-                latency_ms: None,
-                created_at: row.get(6).ok(),
+                latency_ms: row.get::<i64>(6).ok(),
+                created_at: row.get(7).ok(),
             });
         }
         Ok(out)

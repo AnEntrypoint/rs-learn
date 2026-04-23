@@ -7,7 +7,6 @@ pub mod acp;
 pub mod backend;
 pub mod errors;
 pub mod learn;
-pub mod federated;
 pub mod orchestrator;
 pub mod observability;
 pub mod export;
