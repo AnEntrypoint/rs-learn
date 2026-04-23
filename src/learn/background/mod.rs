@@ -88,28 +88,34 @@ impl BackgroundLoop {
         let mut groups: Vec<Vec<usize>> = (0..kk).map(|_| Vec::new()).collect();
         for a in &assigns { groups[a.cluster].push(a.index); }
 
+        struct ClusterPrep { j: usize, members: Vec<usize>, q_sum: f64, pat_id: String, ts: i64 }
+        let preps: Vec<ClusterPrep> = groups.iter().enumerate()
+            .filter(|(_, m)| !m.is_empty())
+            .map(|(j, members)| {
+                let q_sum: f64 = members.iter().map(|&i| meta[i].1).sum();
+                ClusterPrep { j, members: members.clone(), q_sum, pat_id: format!("pat-{}", &Uuid::new_v4().to_string()[..12]), ts: now_ms() }
+            }).collect();
+
+        let strategy_futures: Vec<_> = preps.iter().map(|p| self.summarize_cluster(&p.members, &meta)).collect();
+        let strategies: Vec<String> = futures::future::join_all(strategy_futures).await;
+
         let mut patterns_written = 0usize;
         let mut reasoning_written = 0usize;
-        for (j, members) in groups.iter().enumerate() {
-            if members.is_empty() { continue; }
-            let q_sum: f64 = members.iter().map(|&i| meta[i].1).sum();
-            let pat_id = format!("pat-{}", &Uuid::new_v4().to_string()[..12]);
-            let ts = now_ms();
+        for (p, strategy_text) in preps.iter().zip(strategies.into_iter()) {
             self.store.upsert_pattern(&PatternRow {
-                id: pat_id.clone(),
-                centroid: Some(centroids[j].clone()),
-                count: Some(members.len() as i64),
-                quality_sum: Some(q_sum),
-                created_at: Some(ts),
+                id: p.pat_id.clone(),
+                centroid: Some(centroids[p.j].clone()),
+                count: Some(p.members.len() as i64),
+                quality_sum: Some(p.q_sum),
+                created_at: Some(p.ts),
             }).await?;
             patterns_written += 1;
-            let strategy_text = self.summarize_cluster(members, &meta).await;
             self.store.insert_reasoning(&ReasoningRow {
                 id: format!("rsn-{}", &Uuid::new_v4().to_string()[..12]),
-                pattern_id: Some(pat_id),
+                pattern_id: Some(p.pat_id.clone()),
                 strategy: strategy_text,
-                success_rate: Some(q_sum / members.len() as f64),
-                created_at: Some(ts),
+                success_rate: Some(p.q_sum / p.members.len() as f64),
+                created_at: Some(p.ts),
             }).await?;
             reasoning_written += 1;
         }

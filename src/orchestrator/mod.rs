@@ -224,7 +224,8 @@ fn implicit_quality_from(latency_ms: u64, grounding: f32, confidence: f32) -> f6
     let latency_score = (5000.0f64 - (latency_ms as f64).min(5000.0)) / 5000.0;
     let ground = grounding.clamp(0.0, 1.0) as f64;
     let conf = confidence.clamp(0.0, 1.0) as f64;
-    let q = 0.45 * latency_score + 0.40 * ground + 0.15 * conf;
+    let q = 0.35 * latency_score + 0.50 * ground + 0.15 * conf;
+    if ground < 0.15 { return (q * 0.5).clamp(0.0, 1.0); }
     q.clamp(0.0, 1.0)
 }
 
@@ -246,6 +247,13 @@ mod tests {
         let slow_ungrounded = implicit_quality_from(4800, 0.05, 0.1);
         assert!(fast_grounded > 0.7, "fast grounded should be high, got {fast_grounded}");
         assert!(slow_ungrounded < 0.3, "slow ungrounded should be low, got {slow_ungrounded}");
+    }
+    #[test]
+    fn implicit_quality_low_grounding_caps_quality() {
+        let fast_ungrounded = implicit_quality_from(100, 0.05, 0.9);
+        let fast_grounded = implicit_quality_from(100, 0.5, 0.9);
+        assert!(fast_ungrounded < 0.4, "fast but ungrounded must be penalized, got {fast_ungrounded}");
+        assert!(fast_grounded > fast_ungrounded, "grounding must dominate latency");
     }
     #[test]
     fn implicit_quality_length_does_not_affect_score() {

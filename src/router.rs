@@ -97,14 +97,14 @@ struct Fwd { h: Vec<f32>, ml: Vec<f32>, cl: Vec<f32>, tp: f32, top_p: f32, conf:
 
 fn forward(w: &Weights, hd: &Heads, x: &[f32], n_targets: usize) -> Fwd {
     let mut proj = vec![0f32; RANK];
-    for r in 0..RANK { let off = r * IN; let mut s = 0.0; for i in 0..IN { s += w.v[off + i] * x[i]; } proj[r] = s; }
+    crate::simd::matvec(&w.v, RANK, IN, x, &mut proj);
     let mut wx = vec![0f32; DIM];
-    for d in 0..DIM { let off = d * RANK; let mut s = 0.0; for r in 0..RANK { s += w.u[off + r] * proj[r]; } wx[d] = s; }
+    crate::simd::matvec(&w.u, DIM, RANK, &proj, &mut wx);
     let mut h = vec![0f32; DIM];
     for d in 0..DIM { let pre = wx[d] + w.bh[d]; let z = sig(pre + w.bz[d]); h[d] = (1.0 - z) * pre.tanh(); }
     let head = |wm: &[f32], b: &[f32], n: usize| {
-        let mut o = vec![0f32; n];
-        for k in 0..n { let off = k * DIM; let mut s = b[k]; for d in 0..DIM { s += wm[off + d] * h[d]; } o[k] = s; }
+        let mut o = b.to_vec();
+        for k in 0..n { o[k] += crate::simd::dot(&wm[k * DIM..(k + 1) * DIM], &h); }
         o
     };
     let ml = head(&hd.model, &hd.model_b, n_targets);

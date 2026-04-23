@@ -39,16 +39,15 @@ impl EmbeddingCache {
 
     pub async fn embed(&self, text: &str) -> Result<Vec<f32>> {
         let key = text.to_string();
-        if self.inner.contains_key(&key) {
+        if let Some(arc) = self.inner.get(&key).await {
             self.hits.fetch_add(1, Ordering::Relaxed);
-        } else {
-            self.misses.fetch_add(1, Ordering::Relaxed);
+            return Ok((*arc).clone());
         }
+        self.misses.fetch_add(1, Ordering::Relaxed);
         let embedder = self.embedder.clone();
         let key_for_init = key.clone();
         let arc = self.inner.get_with(key, async move {
-            let v = embedder.embed(&key_for_init).unwrap_or_default();
-            Arc::new(v)
+            Arc::new(embedder.embed(&key_for_init).unwrap_or_default())
         }).await;
         Ok((*arc).clone())
     }
