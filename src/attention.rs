@@ -76,7 +76,8 @@ fn rand_matrix(rows: usize, cols: usize, rng: &mut impl FnMut() -> f32, scale: f
     m
 }
 
-use crate::simd::{dot, matvec};
+use crate::simd::{axpy, dot, matvec};
+use rayon::prelude::*;
 
 fn layer_norm(x: &[f32]) -> Vec<f32> {
     let n = x.len() as f32;
@@ -145,10 +146,17 @@ impl Attention {
         matvec(&self.wq, self.proj_dim, self.dim, query_emb, &mut q);
         let mut k_mat = vec![0.0f32; n * self.proj_dim];
         let mut v_mat = vec![0.0f32; n * self.proj_dim];
-        for (i, (_, emb, _)) in valid.iter().enumerate() {
-            matvec(&self.wk, self.proj_dim, self.dim, emb, &mut k_mat[i * self.proj_dim..(i + 1) * self.proj_dim]);
-            matvec(&self.wv, self.proj_dim, self.dim, emb, &mut v_mat[i * self.proj_dim..(i + 1) * self.proj_dim]);
-        }
+        let pd = self.proj_dim;
+        let dim = self.dim;
+        let wk = &self.wk;
+        let wv = &self.wv;
+        k_mat.par_chunks_mut(pd)
+            .zip(v_mat.par_chunks_mut(pd))
+            .zip(valid.par_iter())
+            .for_each(|((k_row, v_row), (_, emb, _))| {
+                matvec(wk, pd, dim, emb, k_row);
+                matvec(wv, pd, dim, emb, v_row);
+            });
         let now = now_ms_f32();
         let mut edge_by_dst: std::collections::HashMap<&str, &SubgraphEdge> = std::collections::HashMap::new();
         for e in &subgraph.edges { edge_by_dst.entry(e.dst.as_str()).or_insert(e); }
@@ -192,9 +200,11 @@ impl Attention {
         let mut concat = vec![0.0f32; self.proj_dim];
         for h in 0..self.heads {
             let off = h * self.head_dim;
+            let dst = &mut concat[off..off + self.head_dim];
             for i in 0..n {
                 let w = weights[h][i];
-                for d in 0..self.head_dim { concat[off + d] += w * v_mat[i * self.proj_dim + off + d]; }
+                let src = &v_mat[i * self.proj_dim + off..i * self.proj_dim + off + self.head_dim];
+                axpy(w, src, dst);
             }
         }
         let mut proj = vec![0.0f32; self.dim];

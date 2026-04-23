@@ -205,7 +205,7 @@ impl Router {
             for k in 0..nt {
                 let err = model_probs[k] - if k == t_idx { 1.0 } else { 0.0 };
                 let off = k * DIM;
-                for d in 0..DIM { self.heads.model[off + d] -= lr * err * f.h[d]; }
+                crate::simd::axpy(-lr * err, &f.h, &mut self.heads.model[off..off + DIM]);
                 self.heads.model_b[k] -= lr * err;
             }
             let ctx_target = (bucket_for_tokens(tr.estimated_tokens) as usize).min(CTX_BUCKETS - 1);
@@ -213,7 +213,7 @@ impl Router {
             for k in 0..CTX_BUCKETS {
                 let err = ctx_probs[k] - if k == ctx_target { 1.0 } else { 0.0 };
                 let off = k * DIM;
-                for d in 0..DIM { self.heads.ctx[off + d] -= lr * err * f.h[d]; }
+                crate::simd::axpy(-lr * err, &f.h, &mut self.heads.ctx[off..off + DIM]);
                 self.heads.ctx_b[k] -= lr * err;
             }
             applied += 1;

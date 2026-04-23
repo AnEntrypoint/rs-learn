@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- perf: attention + router-train simd/rayon.
+  - `attention::attend`: K/V projections for n subgraph nodes now run in parallel via `rayon::par_chunks_mut`. Previously serial n×2 matvecs (768→768). Weighted V accumulation uses `simd::axpy` instead of scalar per-dim loops.
+  - `router::train`: per-class SGD update replaced scalar `heads[off+d] -= lr*err*h[d]` loop with `simd::axpy(-lr*err, h, row)`. Applies to both model and context-bucket heads.
+  - Net: attention per-query scales with cores on subgraph size; router batch training shrinks inner loop to a single SIMD kernel call per head row.
+
 - perf: k-means rewrite — SIMD cosine + rayon-parallel + pre-normalized vectors.
   - `cosine_dist` now calls `simd::dot` instead of manual scalar loops.
   - Vectors are L2-normalized once up front; inner loop uses `1 - dot(unit_a, unit_b)` (no per-call norm recompute). Kills the O(n·k·iter) norm redundancy that dominated BackgroundLoop CPU.
