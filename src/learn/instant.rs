@@ -51,7 +51,11 @@ pub struct InstantLoop {
     adapter_norm_milli: Arc<AtomicU64>,
     pending_count: Arc<AtomicU64>,
     resets_performed: Arc<AtomicU64>,
+    feedback_expired: Arc<AtomicU64>,
+    replay_buf: std::collections::VecDeque<(Vec<f32>, usize, f32)>,
 }
+
+const REPLAY_CAP: usize = 64;
 
 fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
@@ -71,6 +75,8 @@ impl InstantLoop {
             adapter_norm_milli: Arc::new(AtomicU64::new(0)),
             pending_count: Arc::new(AtomicU64::new(0)),
             resets_performed: Arc::new(AtomicU64::new(0)),
+            feedback_expired: Arc::new(AtomicU64::new(0)),
+            replay_buf: std::collections::VecDeque::with_capacity(REPLAY_CAP),
         };
         loop_.register_observability();
         loop_
@@ -81,12 +87,14 @@ impl InstantLoop {
         let nm = self.adapter_norm_milli.clone();
         let pc = self.pending_count.clone();
         let rp = self.resets_performed.clone();
+        let fe = self.feedback_expired.clone();
         observability::register("instant", move || {
             json!({
                 "adapter_norm": (nm.load(Ordering::Relaxed) as f64) / 1000.0,
                 "feedback_count": fc.load(Ordering::Relaxed),
                 "pending_count": pc.load(Ordering::Relaxed),
                 "resets_performed": rp.load(Ordering::Relaxed),
+                "feedback_expired": fe.load(Ordering::Relaxed),
             })
         });
     }
@@ -168,7 +176,10 @@ impl InstantLoop {
 
     fn gc_pending(&mut self) {
         let now = Instant::now();
+        let before = self.pending.len();
         self.pending.retain(|_, p| now.duration_since(p.created_at) < FEEDBACK_WINDOW);
+        let dropped = before.saturating_sub(self.pending.len());
+        if dropped > 0 { self.feedback_expired.fetch_add(dropped as u64, Ordering::Relaxed); }
         self.pending_count.store(self.pending.len() as u64, Ordering::Relaxed);
     }
 
@@ -244,10 +255,22 @@ impl InstantLoop {
         }
         self.feedback_count.fetch_add(1, Ordering::Relaxed);
         if let Some(idx) = self.target_index(&model) {
-            if payload.quality > 0.7 {
+            let applied: Option<f32> = if payload.quality > 0.7 {
                 self.hebbian_update(&emb, idx, payload.quality);
+                Some(payload.quality)
             } else if payload.quality < 0.3 {
-                self.hebbian_update(&emb, idx, -(1.0 - payload.quality));
+                let s = -(1.0 - payload.quality);
+                self.hebbian_update(&emb, idx, s);
+                Some(s)
+            } else { None };
+            if let Some(scale) = applied {
+                if self.replay_buf.len() >= REPLAY_CAP { self.replay_buf.pop_front(); }
+                self.replay_buf.push_back((emb.clone(), idx, scale));
+                if self.replay_buf.len() >= 4 {
+                    let pick = (now_ms() as usize).wrapping_mul(2654435761) % self.replay_buf.len();
+                    let (re, ri, rs) = self.replay_buf[pick].clone();
+                    self.hebbian_update(&re, ri, rs * 0.5);
+                }
             }
         }
         self.pending.remove(request_id);

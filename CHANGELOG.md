@@ -1,3 +1,11 @@
+## [Unreleased]
+
+### Added
+- **Router multi-epoch shuffled training** — `Router::train` now runs 2 epochs (env `RS_LEARN_ROUTER_EPOCHS=1..8`) with per-epoch Fisher-Yates shuffle, extracting more signal per background tick without growing batch size.
+- **InstantLoop replay buffer (64-slot ring)** — each positive/negative feedback appends `(embedding, target_idx, scale)` and replays one random prior sample at half scale to fight catastrophic forgetting across regime shifts.
+- **Feedback-expiry observability** — `feedback_expired` counter in `/observability` tracks pending trajectories GC'd past `FEEDBACK_WINDOW` (60s); previously silent signal loss.
+- **Background trajectory limit env-tunable** — `RS_LEARN_BG_LIMIT=100..100000` (default 1000) overrides FIFO window used for clustering/training.
+
 # Changelog
 
 ## [Unreleased]

@@ -22,6 +22,13 @@ const DEFAULT_LIMIT: usize = 1000;
 const DEFAULT_SEED: u32 = 42;
 const QUALITY_THRESHOLD: f32 = 0.7;
 
+fn env_limit() -> usize {
+    std::env::var("RS_LEARN_BG_LIMIT").ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&n: &usize| n >= 100 && n <= 100_000)
+        .unwrap_or(DEFAULT_LIMIT)
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RunStats {
     pub clusters: usize,
@@ -52,7 +59,7 @@ impl BackgroundLoop {
         let last_duration_ms = Arc::new(AtomicU64::new(0));
         let this = Arc::new(Self {
             store, router, acp, reasoning, instant,
-            k: DEFAULT_K, limit: DEFAULT_LIMIT, seed: DEFAULT_SEED,
+            k: DEFAULT_K, limit: env_limit(), seed: DEFAULT_SEED,
             run_count: run_count.clone(), last_k: last_k.clone(), last_duration_ms: last_duration_ms.clone(),
         });
         observability::register("background", move || {

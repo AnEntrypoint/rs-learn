@@ -196,7 +196,17 @@ impl Router {
         let mut applied = 0usize;
         let nt = self.targets.len();
         let base_lr = 0.05f32;
-        for tr in batch {
+        let epochs: usize = std::env::var("RS_LEARN_ROUTER_EPOCHS").ok()
+            .and_then(|v| v.parse().ok()).filter(|&n: &usize| n >= 1 && n <= 8).unwrap_or(2);
+        let mut order: Vec<usize> = (0..batch.len()).collect();
+        let mut rng = mulberry32(self.version.wrapping_add(1) as u32 ^ SEED);
+        for _epoch in 0..epochs {
+            for i in (1..order.len()).rev() {
+                let j = (rng() * (i as f32 + 1.0)) as usize;
+                order.swap(i, j.min(i));
+            }
+        for &bi in &order {
+            let tr = &batch[bi];
             if tr.embedding.len() != IN { continue; }
             let positive = tr.quality >= 0.7;
             let negative = tr.quality <= 0.3;
@@ -225,9 +235,11 @@ impl Router {
             }
             applied += 1;
         }
-        self.trajectory_count += applied as u64;
+        }
+        let unique = applied / epochs.max(1);
+        self.trajectory_count += unique as u64;
         if self.trajectory_count >= self.threshold { self.trained = true; }
-        Ok(applied)
+        Ok(unique)
     }
 
     fn pack(&self) -> Vec<u8> {
