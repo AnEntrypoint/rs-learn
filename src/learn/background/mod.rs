@@ -8,7 +8,7 @@ use crate::learn::reasoning_bank::ReasoningBank;
 use crate::observability;
 use crate::router::{Router, TrainSample, IN};
 use crate::store::types::{PatternRow, ReasoningRow};
-use crate::store::Store;
+use crate::store::{now_ms, Store};
 use anyhow::Result;
 use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -81,7 +81,8 @@ impl BackgroundLoop {
             self.last_duration_ms.store(t0.elapsed().as_millis() as u64, Ordering::Relaxed);
             return Ok(RunStats { duration_ms: t0.elapsed().as_millis(), ..Default::default() });
         }
-        let assigns = kmeans_plus_plus(&vectors, self.k, self.seed);
+        let adaptive_k = self.k.min((vectors.len() / 4).max(2));
+        let assigns = kmeans_plus_plus(&vectors, adaptive_k, self.seed);
         let kk = assigns.iter().map(|a| a.cluster).max().unwrap_or(0) + 1;
         let centroids = kmeans_centroids(&vectors, &assigns, kk);
         let mut groups: Vec<Vec<usize>> = (0..kk).map(|_| Vec::new()).collect();
@@ -93,12 +94,13 @@ impl BackgroundLoop {
             if members.is_empty() { continue; }
             let q_sum: f64 = members.iter().map(|&i| meta[i].1).sum();
             let pat_id = format!("pat-{}", &Uuid::new_v4().to_string()[..12]);
+            let ts = now_ms();
             self.store.upsert_pattern(&PatternRow {
                 id: pat_id.clone(),
                 centroid: Some(centroids[j].clone()),
                 count: Some(members.len() as i64),
                 quality_sum: Some(q_sum),
-                created_at: None,
+                created_at: Some(ts),
             }).await?;
             patterns_written += 1;
             let strategy_text = self.summarize_cluster(members, &meta).await;
@@ -107,7 +109,7 @@ impl BackgroundLoop {
                 pattern_id: Some(pat_id),
                 strategy: strategy_text,
                 success_rate: Some(q_sum / members.len() as f64),
-                created_at: None,
+                created_at: Some(ts),
             }).await?;
             reasoning_written += 1;
         }

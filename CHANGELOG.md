@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+- cli: add `query`, `feedback`, `debug`, `--version`. CLI parity with library API.
+  - `rs-learn query <text>` — runs one full orchestrator pass, prints JSON with request_id, confidence, latency, routing, stage breakdown. No Rust required to exercise the learning loop end-to-end.
+  - `rs-learn feedback <request_id> <quality 0..1> [signal]` — records explicit feedback.
+  - `rs-learn debug [subsystem]` — dumps `/debug` snapshot (all or one) without starting the HTTP server.
+  - `rs-learn --version` / `-V` / `version` — prints package version.
+  - `rs-learn start` alias for `ready` (more intuitive).
+  - `help` now goes to stdout (was stderr, violated Unix convention); stderr still used for unknown-subcommand error path.
+
+- learn: adaptive k-means k, pattern/reasoning timestamps.
+  - `BackgroundLoop::run_once` capped `k = min(100, max(2, n_points / 4))`. Previously `k=100` hardcoded — 8 trajectories produced 8 singleton clusters, wasting compute and producing useless per-point "patterns".
+  - `upsert_pattern` and `insert_reasoning` now carry `created_at = now_ms()`. Previously `None` — silently zero-timestamped, breaking recency ordering downstream.
+
 - learn: tighten implicit quality signal, expose reset counter, fix stale README, add held-out routing test.
   - **Implicit quality replaces `response_len` with retrieval grounding**. The old weighting (`0.4*latency + 0.3*length + 0.3*confidence`) rewarded verbose responses — a concise correct answer scored lower than a rambling one. New weighting is `0.45*latency + 0.40*grounding + 0.15*confidence`, where `grounding = top-neighbor similarity score` (the actual retrieval quality for the query). Confidence was downweighted because softmax-of-logits fed back as quality creates an overconfidence loop. Length is gone entirely. Signature changed: `implicit_quality_from(latency_ms, grounding: f32, confidence: f32)`.
   - **InstantLoop `resets_performed` counter** — `reset_adapter()` used to wipe rank-2 Hebbian state on every boundary with no observable trace. Now surfaced at `/debug/instant.resets_performed`. `DeepLoop /debug/deep.boundaries_detected` already existed; the two together fully trace boundary→reset.

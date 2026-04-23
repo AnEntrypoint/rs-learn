@@ -41,6 +41,20 @@ Binaries produced: `rs-learn`, `rs-learn-validate`.
 
 ## Usage
 
+### CLI (no Rust required)
+
+```bash
+rs-learn query "What's Alice's role?"
+# → JSON with request_id, text, confidence, latency_ms, routing, stage_breakdown
+rs-learn feedback <request_id> 0.9
+rs-learn debug                  # all subsystems
+rs-learn debug instant          # one subsystem
+rs-learn --version
+rs-learn help
+```
+
+### Library
+
 ```rust
 use rs_learn::Orchestrator;
 use rs_learn::learn::instant::FeedbackPayload;
