@@ -50,6 +50,7 @@ pub struct InstantLoop {
     feedback_count: Arc<AtomicU64>,
     adapter_norm_milli: Arc<AtomicU64>,
     pending_count: Arc<AtomicU64>,
+    resets_performed: Arc<AtomicU64>,
 }
 
 fn now_ms() -> i64 {
@@ -69,6 +70,7 @@ impl InstantLoop {
             feedback_count: Arc::new(AtomicU64::new(0)),
             adapter_norm_milli: Arc::new(AtomicU64::new(0)),
             pending_count: Arc::new(AtomicU64::new(0)),
+            resets_performed: Arc::new(AtomicU64::new(0)),
         };
         loop_.register_observability();
         loop_
@@ -78,11 +80,13 @@ impl InstantLoop {
         let fc = self.feedback_count.clone();
         let nm = self.adapter_norm_milli.clone();
         let pc = self.pending_count.clone();
+        let rp = self.resets_performed.clone();
         observability::register("instant", move || {
             json!({
                 "adapter_norm": (nm.load(Ordering::Relaxed) as f64) / 1000.0,
                 "feedback_count": fc.load(Ordering::Relaxed),
                 "pending_count": pc.load(Ordering::Relaxed),
+                "resets_performed": rp.load(Ordering::Relaxed),
             })
         });
     }
@@ -126,6 +130,7 @@ impl InstantLoop {
         self.adapter_b.fill(0.0);
         self.lr = LR0;
         self.adapter_norm_milli.store(0, Ordering::Relaxed);
+        self.resets_performed.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn serialize_adapter(&self) -> Vec<u8> {

@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- learn: tighten implicit quality signal, expose reset counter, fix stale README, add held-out routing test.
+  - **Implicit quality replaces `response_len` with retrieval grounding**. The old weighting (`0.4*latency + 0.3*length + 0.3*confidence`) rewarded verbose responses — a concise correct answer scored lower than a rambling one. New weighting is `0.45*latency + 0.40*grounding + 0.15*confidence`, where `grounding = top-neighbor similarity score` (the actual retrieval quality for the query). Confidence was downweighted because softmax-of-logits fed back as quality creates an overconfidence loop. Length is gone entirely. Signature changed: `implicit_quality_from(latency_ms, grounding: f32, confidence: f32)`.
+  - **InstantLoop `resets_performed` counter** — `reset_adapter()` used to wipe rank-2 Hebbian state on every boundary with no observable trace. Now surfaced at `/debug/instant.resets_performed`. `DeepLoop /debug/deep.boundaries_detected` already existed; the two together fully trace boundary→reset.
+  - **README `feedback` example was wrong** — compiled against a removed `(id, f64, bool)` signature. Updated to use `FeedbackPayload { quality, signal }` matching current API.
+  - **Held-out routing accuracy test** — `router_learns_held_out_routing_from_trajectories`: seeds 200 training samples from two jittered embedding anchors, trains via `Router::train`, asserts that held-out queries from each region route to the correct target. First regression test that validates *learning outcome*, not just mechanics.
+- tests: 3 replace/rename (`implicit_quality_rewards_fast_grounded_responses`, `implicit_quality_length_does_not_affect_score`, `implicit_quality_clamps_to_unit`) + 1 new integration test. 30 lib + 17 integration green locally.
+
 - learn: close the remaining gaps from the prior audit — implicit quality, deep-loop wiring, federated prune.
   - **Implicit quality signal**: `Orchestrator::query` now derives a per-request quality from latency, response length, and route confidence and stores it on the trajectory (previously `quality=None` until explicit `feedback()`). Exposed as `implicit_quality_from(latency_ms, response_len, confidence)`. Fast-confident replies score high, slow-short-unconfident ones score low. Without this, `BackgroundLoop.run_once` no-oped on every read-only deployment because nothing ever reached the 0.7 training threshold.
   - **Trajectory query + latency persisted**: `InstantLoop::record_trajectory_full` (new) writes `query`, `quality`, and `latency_ms` into the trajectory row. Old `record_trajectory` delegates to it with nulls to preserve the existing call sites / tests. `Store::list_recent_trajectories_with_embeddings` now selects `latency_ms` too (was silently `None`).

@@ -479,3 +479,43 @@ async fn instant_adapter_bounded_under_runaway_feedback() {
     assert!(norm <= MAX_ADAPTER_NORM + 1e-3, "adapter norm {} exceeded cap {}", norm, MAX_ADAPTER_NORM);
     assert!(norm > 0.0);
 }
+
+#[tokio::test]
+async fn router_learns_held_out_routing_from_trajectories() {
+    let (_g, path) = tmp_db("held_out");
+    let store = Arc::new(Store::open(&path).await.unwrap());
+    let targets = vec!["alpha".to_string(), "beta".to_string()];
+    let mut router = Router::new(store.clone(), targets.clone());
+
+    let anchor_a: Vec<f32> = (0..EMBED_DIM).map(|i| ((i as f32) * 0.017).sin()).collect();
+    let anchor_b: Vec<f32> = (0..EMBED_DIM).map(|i| ((i as f32) * 0.023).cos()).collect();
+    let jitter = |base: &[f32], seed: u32| -> Vec<f32> {
+        let noise = rand_emb(seed);
+        base.iter().zip(noise.iter()).map(|(x, n)| x + 0.05 * n).collect()
+    };
+
+    let mut samples = Vec::with_capacity(200);
+    for i in 0..100u32 {
+        samples.push(TrainSample {
+            embedding: jitter(&anchor_a, 100 + i),
+            chosen_target: "alpha".into(), quality: 0.9, estimated_tokens: 500,
+        });
+        samples.push(TrainSample {
+            embedding: jitter(&anchor_b, 500 + i),
+            chosen_target: "beta".into(), quality: 0.9, estimated_tokens: 500,
+        });
+    }
+    let applied = router.train(&samples).unwrap();
+    assert_eq!(applied, 200);
+
+    let held_out_a = jitter(&anchor_a, 9001);
+    let held_out_b = jitter(&anchor_b, 9002);
+    let ctx = RouteCtx { task_type: Some("default".into()), estimated_tokens: 500 };
+    let pick_a = router.route(&held_out_a, &ctx);
+    let pick_b = router.route(&held_out_b, &ctx);
+    assert_eq!(pick_a.model, "alpha", "held-out A region must route to alpha, got {}", pick_a.model);
+    assert_eq!(pick_b.model, "beta", "held-out B region must route to beta, got {}", pick_b.model);
+
+    let cross_sim = cos_sim(&anchor_a, &anchor_b);
+    assert!(cross_sim.abs() < 0.9, "anchors must be distinct, cos={}", cross_sim);
+}

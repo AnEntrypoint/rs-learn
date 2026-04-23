@@ -186,7 +186,8 @@ impl Orchestrator {
         let t_l = Instant::now();
         let response_str = if let Value::String(s) = &response { s.clone() } else { response.to_string() };
         let latency_ms = t0.elapsed().as_millis() as u64;
-        let implicit_quality = Some(implicit_quality_from(latency_ms, response_str.len(), confidence));
+        let grounding = neighbors.first().map(|n| n.score.clamp(0.0, 1.0)).unwrap_or(0.0);
+        let implicit_quality = Some(implicit_quality_from(latency_ms, grounding, confidence));
         let request_id = {
             let mut il = self.instant.lock().await;
             il.record_trajectory_full(Some(sid.clone()), emb.clone(), route_model, response_str, Some(text.to_string()), implicit_quality, latency_ms).await?
@@ -219,11 +220,11 @@ impl Orchestrator {
     }
 }
 
-fn implicit_quality_from(latency_ms: u64, response_len: usize, confidence: f32) -> f64 {
+fn implicit_quality_from(latency_ms: u64, grounding: f32, confidence: f32) -> f64 {
     let latency_score = (5000.0f64 - (latency_ms as f64).min(5000.0)) / 5000.0;
-    let length_score = ((response_len as f64) / 500.0).min(1.0);
+    let ground = grounding.clamp(0.0, 1.0) as f64;
     let conf = confidence.clamp(0.0, 1.0) as f64;
-    let q = 0.4 * latency_score + 0.3 * length_score + 0.3 * conf;
+    let q = 0.45 * latency_score + 0.40 * ground + 0.15 * conf;
     q.clamp(0.0, 1.0)
 }
 
@@ -240,15 +241,20 @@ impl Drop for Orchestrator {
 mod tests {
     use super::implicit_quality_from;
     #[test]
-    fn implicit_quality_rewards_fast_confident_responses() {
-        let fast_conf = implicit_quality_from(200, 800, 0.9);
-        let slow_unconf = implicit_quality_from(4800, 20, 0.1);
-        assert!(fast_conf > 0.7, "fast confident should be high, got {fast_conf}");
-        assert!(slow_unconf < 0.3, "slow unconfident should be low, got {slow_unconf}");
+    fn implicit_quality_rewards_fast_grounded_responses() {
+        let fast_grounded = implicit_quality_from(200, 0.9, 0.9);
+        let slow_ungrounded = implicit_quality_from(4800, 0.05, 0.1);
+        assert!(fast_grounded > 0.7, "fast grounded should be high, got {fast_grounded}");
+        assert!(slow_ungrounded < 0.3, "slow ungrounded should be low, got {slow_ungrounded}");
+    }
+    #[test]
+    fn implicit_quality_length_does_not_affect_score() {
+        let q = implicit_quality_from(1000, 0.5, 0.5);
+        assert!((0.0..=1.0).contains(&q));
     }
     #[test]
     fn implicit_quality_clamps_to_unit() {
-        assert!((0.0..=1.0).contains(&implicit_quality_from(0, 10_000, 1.0)));
-        assert!((0.0..=1.0).contains(&implicit_quality_from(u64::MAX, 0, -1.0)));
+        assert!((0.0..=1.0).contains(&implicit_quality_from(0, 1.0, 1.0)));
+        assert!((0.0..=1.0).contains(&implicit_quality_from(u64::MAX, -1.0, -1.0)));
     }
 }

@@ -42,21 +42,15 @@ Binaries produced: `rs-learn`, `rs-learn-validate`.
 ## Usage
 
 ```rust
-use rs_learn::{openStore, Orchestrator, OrchestratorConfig, ACPClient};
+use rs_learn::Orchestrator;
+use rs_learn::learn::instant::FeedbackPayload;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let store = openStore(".rs-learn.db").await?;
-    let acp = ACPClient::from_env()?;
-    let orch = Orchestrator::builder()
-        .store(store)
-        .acp(acp)
-        .build()
-        .await?;
-
+    let orch = Orchestrator::new_default().await?;
     let r = orch.query("What's Alice's role?", Default::default()).await?;
     println!("{} {:?}", r.text, r.stage_breakdown);
-    orch.feedback(&r.request_id, 0.9, true).await?;
+    orch.feedback(&r.request_id, FeedbackPayload { quality: 0.9, signal: None }).await?;
     Ok(())
 }
 ```
