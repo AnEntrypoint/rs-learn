@@ -243,9 +243,11 @@ impl InstantLoop {
             None => self.store.insert_trajectory(&row).await?,
         }
         self.feedback_count.fetch_add(1, Ordering::Relaxed);
-        if payload.quality > 0.7 {
-            if let Some(idx) = self.target_index(&model) {
+        if let Some(idx) = self.target_index(&model) {
+            if payload.quality > 0.7 {
                 self.hebbian_update(&emb, idx, payload.quality);
+            } else if payload.quality < 0.3 {
+                self.hebbian_update(&emb, idx, -(1.0 - payload.quality));
             }
         }
         self.pending.remove(request_id);

@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- learn: negative-feedback now trains. Previously low-quality trajectories were silently dropped in three places (BackgroundLoop quality gate, Router.train quality gate, InstantLoop.feedback gate), so the system only learned *what to do* and never *what not to do* — half the learning signal wasted.
+  - `Router::train`: `quality >= 0.7` still trains toward chosen target; `quality <= 0.3` now trains *away* (gradient sign reversed, strength `0.3 - quality`). Context-bucket head only trains on positive examples since token count is ground truth regardless of response quality.
+  - `BackgroundLoop::run_once`: passes through both ends of the quality distribution (`>= 0.7` or `<= 0.3`); middle band (0.3..0.7) still filtered as noisy.
+  - `InstantLoop::feedback`: negative hebbian update (`scale = -(1-quality)`) when `quality < 0.3` pushes the adapter away from the wrong target immediately, instead of waiting for the background consolidation pass.
+
 - chore: drop vestigial rs-search binary-fetch workflow. rs-search has been consumed as an SDK crate (`rs_search::run_search`) via `src/rs_search_bridge.rs` since integration; no subprocess path exists. Removed `.github/workflows/fetch-rs-search.yml` which pulled prebuilt binaries from the rs-search release page weekly.
 
 - perf: attention + router-train simd/rayon.

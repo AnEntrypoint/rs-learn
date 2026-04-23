@@ -197,24 +197,31 @@ impl Router {
         let nt = self.targets.len();
         let base_lr = 0.05f32;
         for tr in batch {
-            if tr.quality <= 0.7 || tr.embedding.len() != IN { continue; }
+            if tr.embedding.len() != IN { continue; }
+            let positive = tr.quality >= 0.7;
+            let negative = tr.quality <= 0.3;
+            if !positive && !negative { continue; }
             let Some(t_idx) = self.targets.iter().position(|t| t == &tr.chosen_target) else { continue };
             let f = forward(&self.w, &self.heads, &tr.embedding, nt);
-            let lr = base_lr * tr.quality;
+            let sign = if positive { 1.0f32 } else { -1.0f32 };
+            let strength = if positive { tr.quality } else { 0.3 - tr.quality };
+            let lr = base_lr * strength;
             let model_probs = softmax(&f.ml);
             for k in 0..nt {
                 let err = model_probs[k] - if k == t_idx { 1.0 } else { 0.0 };
                 let off = k * DIM;
-                crate::simd::axpy(-lr * err, &f.h, &mut self.heads.model[off..off + DIM]);
-                self.heads.model_b[k] -= lr * err;
+                crate::simd::axpy(-sign * lr * err, &f.h, &mut self.heads.model[off..off + DIM]);
+                self.heads.model_b[k] -= sign * lr * err;
             }
-            let ctx_target = (bucket_for_tokens(tr.estimated_tokens) as usize).min(CTX_BUCKETS - 1);
-            let ctx_probs = softmax(&f.cl);
-            for k in 0..CTX_BUCKETS {
-                let err = ctx_probs[k] - if k == ctx_target { 1.0 } else { 0.0 };
-                let off = k * DIM;
-                crate::simd::axpy(-lr * err, &f.h, &mut self.heads.ctx[off..off + DIM]);
-                self.heads.ctx_b[k] -= lr * err;
+            if positive {
+                let ctx_target = (bucket_for_tokens(tr.estimated_tokens) as usize).min(CTX_BUCKETS - 1);
+                let ctx_probs = softmax(&f.cl);
+                for k in 0..CTX_BUCKETS {
+                    let err = ctx_probs[k] - if k == ctx_target { 1.0 } else { 0.0 };
+                    let off = k * DIM;
+                    crate::simd::axpy(-lr * err, &f.h, &mut self.heads.ctx[off..off + DIM]);
+                    self.heads.ctx_b[k] -= lr * err;
+                }
             }
             applied += 1;
         }
