@@ -2602,6 +2602,7 @@ dependencies = [
  "moka",
  "pulp 0.19.7",
  "rand 0.8.6",
+ "rayon",
  "reqwest",
  "rs-search",
  "safetensors 0.4.5",

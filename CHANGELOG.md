@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+- perf: k-means rewrite — SIMD cosine + rayon-parallel + pre-normalized vectors.
+  - `cosine_dist` now calls `simd::dot` instead of manual scalar loops.
+  - Vectors are L2-normalized once up front; inner loop uses `1 - dot(unit_a, unit_b)` (no per-call norm recompute). Kills the O(n·k·iter) norm redundancy that dominated BackgroundLoop CPU.
+  - k-means++ seeding: squared-distance update is parallel via `rayon::par_iter_mut`. With n=1000 points, the per-centroid O(n·dim) scan now scales across cores.
+  - Assignment pass (O(n·k·dim)) is `par_iter` — each point picks its cluster in parallel.
+  - Centroid accumulation uses `fold/reduce` with `simd::axpy` for per-point sums; O(n·dim) add pass is now SIMD + parallel. Centroids re-normalized per iter so cosine_unit stays valid.
+  - Added `rayon = "1"` dependency.
+  - End-to-end: a full BackgroundLoop run on 1000 trajectories × 768-dim × 25 iterations previously spent ~6 GFLOPs serial scalar on distance computation; now parallel SIMD.
+
 - perf: simd router forward, parallel cluster summaries, grounding-gated quality signal.
   - `router::forward()` now uses `simd::matvec` + `simd::dot` for all matrix ops instead of manual nested loops.
   - `BackgroundLoop::run_once` parallelizes all per-cluster LLM summarizations via `futures::future::join_all`. Previously serialized: N clusters = N sequential LLM calls. Now concurrent.
