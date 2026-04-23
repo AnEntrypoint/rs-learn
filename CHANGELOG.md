@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- perf: simd router forward, parallel cluster summaries, grounding-gated quality signal.
+  - `router::forward()` now uses `simd::matvec` + `simd::dot` for all matrix ops instead of manual nested loops.
+  - `BackgroundLoop::run_once` parallelizes all per-cluster LLM summarizations via `futures::future::join_all`. Previously serialized: N clusters = N sequential LLM calls. Now concurrent.
+  - `implicit_quality_from`: grounding weight 0.40→0.50, latency 0.45→0.35. Hard gate: `grounding < 0.15` halves quality — prevents fast-ungrounded responses polluting router training.
+  - `EmbeddingCache::embed`: fast-path `get().await` before `get_with` avoids TOCTOU double-lock on hits.
+
 - cli: add `query`, `feedback`, `debug`, `--version`. CLI parity with library API.
   - `rs-learn query <text>` — runs one full orchestrator pass, prints JSON with request_id, confidence, latency, routing, stage breakdown. No Rust required to exercise the learning loop end-to-end.
   - `rs-learn feedback <request_id> <quality 0..1> [signal]` — records explicit feedback.
