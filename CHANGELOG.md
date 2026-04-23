@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- chore: drop vestigial rs-search binary-fetch workflow. rs-search has been consumed as an SDK crate (`rs_search::run_search`) via `src/rs_search_bridge.rs` since integration; no subprocess path exists. Removed `.github/workflows/fetch-rs-search.yml` which pulled prebuilt binaries from the rs-search release page weekly.
+
 - perf: attention + router-train simd/rayon.
   - `attention::attend`: K/V projections for n subgraph nodes now run in parallel via `rayon::par_chunks_mut`. Previously serial n×2 matvecs (768→768). Weighted V accumulation uses `simd::axpy` instead of scalar per-dim loops.
   - `router::train`: per-class SGD update replaced scalar `heads[off+d] -= lr*err*h[d]` loop with `simd::axpy(-lr*err, h, row)`. Applies to both model and context-bucket heads.
