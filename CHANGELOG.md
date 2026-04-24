@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Refactor
+- **orchestrator/mod.rs split** — `query`, `feedback`, and helper functions moved to `orchestrator/pipeline.rs`; tests extracted to `orchestrator/tests.rs`. All three files now within 200-line hygiene limit (mod.rs=136, pipeline.rs=195, tests.rs=84).
+
 ### Fixed
 - **Fisher persistence across restarts** — `Orchestrator::new_default` now calls `DeepLoop::load_fisher("adapter")` on startup so EWC++ regularization retains Fisher information across process restarts; previously Fisher was zeroed on every restart defeating catastrophic-forgetting protection.
 - **Cold-start implicit quality bias** — `implicit_quality_from` now accepts `Option<f32>` for grounding; when memory is empty (no neighbors) uses neutral 0.5 grounding instead of 0.0 which previously halved all early trajectory quality scores via the `ground < 0.15` penalty, poisoning initial router training.
