@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- **Instant adapter LR floor** — `RS_LEARN_LR_MIN` (default 1e-3, clamped to `(0, LR0]`) prevents hebbian learning rate from decaying toward zero; `hebbian_update` now does `lr = max(lr * DECAY, lr_min)`. Test `lr_respects_floor` asserts invariant after 2000 updates.
 - **Router epsilon-greedy exploration** — `RS_LEARN_ROUTER_EPSILON=0.0..0.5` (default 0.0) samples non-argmax targets to break greedy lock-in. `RouteSnapshot.exploration` exposes per-query firing. Seeded via `RS_LEARN_ROUTER_SEED` for test determinism.
 - **Attention feedthrough** — orchestrator now averages per-head attention weights across the retrieved subgraph and appends a "Top-attended context" block (top-3 node ids + weights) to the ACP system prompt. Previously `attend()` output was discarded — pure silent no-op.
 - **Embed-cache size telemetry** — `/observability` `embed_cache` module now reports `size` (moka entry count) alongside hits/misses/hit_rate.
