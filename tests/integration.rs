@@ -150,6 +150,40 @@ async fn section_04_attention_weights_sum_to_one_per_head() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 4b. Attention — training_emb selection: attended vector used when weights
+//     non-empty; raw emb used as fallback when subgraph is empty.
+//     Covers the attn_result branch in Orchestrator::query().
+// ─────────────────────────────────────────────────────────────────────────────
+#[tokio::test]
+async fn section_04b_training_emb_selection_via_attention() {
+    let (_g, path) = tmp_db("s4b");
+    let store = Arc::new(Store::open(&path).await.unwrap());
+    let att = Attention::new(store);
+    let q = rand_emb(42);
+
+    let nodes: Vec<SubgraphNode> = (0..8u32).map(|i| SubgraphNode {
+        id: format!("n{}", i),
+        embedding: Some(rand_emb(200 + i)),
+        created_at: Some(0),
+    }).collect();
+    let edges: Vec<SubgraphEdge> = (0..8u32).map(|i| SubgraphEdge {
+        src: "q".into(), dst: format!("n{}", i),
+        relation: Some("entity".into()), weight: Some(1.0), created_at: Some(0),
+    }).collect();
+    let sg_nonempty = Subgraph { nodes, edges };
+
+    let ctx_nonempty = att.attend(&q, &sg_nonempty).expect("attend non-empty");
+    assert!(!ctx_nonempty.weights.is_empty(), "non-empty subgraph must yield weights");
+    let training_emb_nonempty = ctx_nonempty.vector.clone();
+    assert_eq!(training_emb_nonempty.len(), EMBED_DIM);
+
+    let sg_empty = Subgraph { nodes: vec![], edges: vec![] };
+    let ctx_empty = att.attend(&q, &sg_empty).expect("attend empty");
+    assert!(ctx_empty.weights.is_empty() || ctx_empty.weights.iter().all(|w| w.is_empty()),
+        "empty subgraph must yield empty weights → fallback to raw emb");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 5. Router — route, train, save/load roundtrip byte-equal.
 // ─────────────────────────────────────────────────────────────────────────────
 #[tokio::test]

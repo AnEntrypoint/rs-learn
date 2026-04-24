@@ -135,9 +135,14 @@ impl Orchestrator {
         stages.insert("memory".into(), t_m.elapsed().as_millis() as u64);
 
         let t_a = Instant::now();
-        let attn_text = match self.attention.attend(&emb, &subgraph) {
-            Ok(ctx) => attention_hint(&ctx, &subgraph),
+        let attn_result = self.attention.attend(&emb, &subgraph);
+        let attn_text = match &attn_result {
+            Ok(ctx) => attention_hint(ctx, &subgraph),
             Err(e) => { eprintln!("attention error (non-fatal): {e}"); String::new() }
+        };
+        let training_emb = match &attn_result {
+            Ok(ctx) if !ctx.weights.is_empty() => ctx.vector.clone(),
+            _ => emb.clone(),
         };
         stages.insert("attention".into(), t_a.elapsed().as_millis() as u64);
 
@@ -193,7 +198,7 @@ impl Orchestrator {
         let implicit_quality = Some(implicit_quality_from(latency_ms, grounding, confidence));
         let request_id = {
             let mut il = self.instant.lock().await;
-            il.record_trajectory(Some(sid.clone()), emb.clone(), route_model, response_str, Some(text.to_string()), implicit_quality, latency_ms).await?
+            il.record_trajectory(Some(sid.clone()), training_emb, route_model, response_str, Some(text.to_string()), implicit_quality, latency_ms).await?
         };
         stages.insert("learn".into(), t_l.elapsed().as_millis() as u64);
 

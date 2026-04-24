@@ -132,7 +132,9 @@ impl BackgroundLoop {
             let model = serde_json::from_str::<serde_json::Value>(dec).ok()
                 .and_then(|v| v.get("model").and_then(|m| m.as_str()).map(String::from));
             let Some(chosen) = model else { continue };
-            let estimated_tokens = query.as_ref().map(|q| q.len() as u64).unwrap_or(0);
+            let estimated_tokens = query.as_ref()
+                .map(|q| (q.split_whitespace().count() * 4 / 3) as u64)
+                .unwrap_or(0);
             batch.push(TrainSample { embedding: vectors[i].clone(), chosen_target: chosen, quality: qf, estimated_tokens });
         }
         let trained_on = if !batch.is_empty() {
@@ -340,5 +342,13 @@ mod tests {
         let p = &captured[0];
         assert!(p.contains("refactor"), "prompt lacks query content: {p}");
         assert!(!p.contains("t0,"), "prompt must not contain raw trajectory ids");
+    }
+
+    #[test]
+    fn estimated_tokens_word_count_approximation() {
+        let query = "one two three four five six seven eight nine ten";
+        let estimated = (query.split_whitespace().count() * 4 / 3) as u64;
+        assert!(estimated >= 10 && estimated <= 20,
+            "expected estimated_tokens in [10,20] for 10-word query, got {estimated}");
     }
 }
