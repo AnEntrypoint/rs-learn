@@ -1,6 +1,10 @@
 ## [Unreleased]
 
 ### Added
+- **npm wrapper package** — `npm/` directory added; `npx rs-learn` / `bunx rs-learn` now works. `postinstall.js` detects platform+arch, downloads correct binary from GitHub Releases (`v<version>`), places in `npm/bin/`. Covers all 6 release targets (linux x64/arm64, darwin x64/arm64, win32 x64/arm64). Graceful skip when no binary for platform with cargo fallback message.
+- **Automated npm publish** — `publish.yml` now publishes `npm/` package to npmjs.org on every release. Bumps `npm/package.json` version to match resolved semver before publish. Skips gracefully when `NPM_TOKEN` secret absent.
+
+### Added (prior)
 - **Housekeeping suite** — BackgroundLoop now runs after each tick: trajectory pruning (keeps quality>0.7 + latest N, `RS_LEARN_TRAJ_KEEP` default 10000), router weight pruning (keeps 5 latest versions), stale reasoning eviction (`RS_LEARN_REASONING_TTL_DAYS` default 7, min_success_rate 0.3, cold-start guard <20 rows), noise pattern eviction (count<3 AND avg_quality<0.2). Prevents unbounded DB growth and keeps pattern/reasoning banks relevant.
 - **Session quality EMA** — `Orchestrator::feedback` now smooths raw quality signal with per-session EMA (alpha=0.3, init 0.5) before training; prevents single high/low outlier from dominating adapter update.
 - **FTS desync repair** — `Store::open` now calls `repair_fts_sync` which rebuilds any FTS shadow table whose row count diverges from the base table. Prevents stale full-text search results after crashes or partial writes.

@@ -115,3 +115,24 @@ jobs:
             exit 0
           fi
           cargo publish --token "${CARGO_REGISTRY_TOKEN}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Publish to npm
+        if: steps.tag.outputs.exists == 'false'
+        continue-on-error: true
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
+            echo "NPM_TOKEN not set; skipping npm publish"
+            exit 0
+          fi
+          cd npm
+          sed -i 's/"version": "[^"]*"/"version": "${{ steps.ver.outputs.next }}"/' package.json
+          npm publish --access public
