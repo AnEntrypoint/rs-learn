@@ -46,6 +46,20 @@ impl InstantLoop {
         implicit_quality: Option<f64>,
         latency_ms: u64,
     ) -> Result<RequestId> {
+        self.record_trajectory_full(session_id, embedding, route_model, response, query_text, implicit_quality, latency_ms, Vec::new()).await
+    }
+
+    pub async fn record_trajectory_full(
+        &mut self,
+        session_id: Option<String>,
+        embedding: Vec<f32>,
+        route_model: String,
+        response: String,
+        query_text: Option<String>,
+        implicit_quality: Option<f64>,
+        latency_ms: u64,
+        retrieved_strategies: Vec<String>,
+    ) -> Result<RequestId> {
         if embedding.len() != IN { return Err(anyhow!("embedding must be {IN}-d")); }
         self.gc_pending();
         let request_id = Uuid::new_v4().to_string();
@@ -72,6 +86,7 @@ impl InstantLoop {
             session_id, embedding, route_model,
             query_text,
             created_at: Instant::now(), created_ms,
+            retrieved_strategies,
         });
         self.pending_count.store(self.pending.len() as u64, Ordering::Relaxed);
         Ok(request_id)

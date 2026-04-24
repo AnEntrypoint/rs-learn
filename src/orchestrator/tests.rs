@@ -1,4 +1,4 @@
-use super::pipeline::{attention_hint, implicit_quality_from};
+use super::hints::{attention_hint, implicit_quality_from};
 use crate::attention::{Context as AttnContext, Subgraph, SubgraphNode};
 
 fn node(id: &str) -> SubgraphNode {

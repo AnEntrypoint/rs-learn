@@ -1,3 +1,4 @@
+mod hints;
 mod pipeline;
 mod types;
 #[cfg(test)]
@@ -117,9 +118,30 @@ impl Orchestrator {
         use crate::store::now_ms;
         use uuid::Uuid;
         let sid = id.unwrap_or_else(|| format!("sess-{}", &Uuid::new_v4().to_string()[..8]));
+        {
+            let map = self.sessions.read().await;
+            if map.contains_key(&sid) {
+                drop(map);
+                let mut map = self.sessions.write().await;
+                if let Some(s) = map.get_mut(&sid) { s.turns += 1; }
+                return sid;
+            }
+        }
+        let loaded = self.store.load_session(&sid).await.ok().flatten();
+        let (created_at, ema) = match &loaded {
+            Some(row) => {
+                let ema = row.meta.as_ref()
+                    .and_then(|m| m.get("quality_ema"))
+                    .and_then(|v| v.as_f64())
+                    .map(|v| v as f32)
+                    .unwrap_or(0.5);
+                (row.created_at.unwrap_or_else(now_ms), ema)
+            }
+            None => (now_ms(), 0.5),
+        };
         let mut map = self.sessions.write().await;
-        let entry = map.entry(sid.clone()).or_insert_with(|| Session {
-            id: sid.clone(), created_at: now_ms(), turns: 0, last_embedding: None, quality_ema: 0.5,
+        let entry = map.entry(sid.clone()).or_insert(Session {
+            id: sid.clone(), created_at, turns: 0, last_embedding: None, quality_ema: ema,
         });
         entry.turns += 1;
         sid

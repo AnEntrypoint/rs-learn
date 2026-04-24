@@ -39,102 +39,9 @@ pub struct TrainSample {
     pub estimated_tokens: u64,
 }
 
-struct Weights { v: Vec<f32>, u: Vec<f32>, uh: Vec<f32>, bh: Vec<f32>, bz: Vec<f32> }
-struct Heads {
-    model: Vec<f32>, model_b: Vec<f32>,
-    ctx: Vec<f32>, ctx_b: Vec<f32>,
-    temp: Vec<f32>, temp_b: Vec<f32>,
-    top_p: Vec<f32>, top_p_b: Vec<f32>,
-    conf: Vec<f32>, conf_b: Vec<f32>,
-}
-
-fn mulberry32(mut a: u32) -> impl FnMut() -> f32 {
-    move || {
-        a = a.wrapping_add(0x6D2B_79F5);
-        let mut t = a;
-        t = (t ^ (t >> 15)).wrapping_mul(t | 1);
-        t ^= t.wrapping_add((t ^ (t >> 7)).wrapping_mul(t | 61));
-        ((t ^ (t >> 14)) as f32) / 4_294_967_296.0
-    }
-}
-
-fn randn(rnd: &mut dyn FnMut() -> f32) -> f32 {
-    let u = rnd().max(1e-9);
-    let v = rnd();
-    (-2.0 * u.ln()).sqrt() * (2.0 * std::f32::consts::PI * v).cos()
-}
-
-fn init_weights() -> Weights {
-    let mut rnd = mulberry32(SEED);
-    let (sv, su, sh) = (1.0 / (IN as f32).sqrt(), 1.0 / (RANK as f32).sqrt(), 1.0 / (DIM as f32).sqrt());
-    let mut v = vec![0f32; RANK * IN]; for x in v.iter_mut() { *x = randn(&mut rnd) * sv; }
-    let mut u = vec![0f32; DIM * RANK]; for x in u.iter_mut() { *x = randn(&mut rnd) * su; }
-    let mut uh = vec![0f32; DIM * DIM]; for x in uh.iter_mut() { *x = randn(&mut rnd) * sh; }
-    let mut mrnd = mulberry32(SEED ^ 0x9E37);
-    for i in 0..u.len() { if mrnd() < SPARSITY { u[i] = 0.0; } }
-    Weights { v, u, uh, bh: vec![0f32; DIM], bz: vec![0f32; DIM] }
-}
-
-fn init_heads(n_targets: usize) -> Heads {
-    let mut rnd = mulberry32(SEED ^ 0xA17C);
-    let s = 1.0 / (DIM as f32).sqrt();
-    let mut mk = |n: usize| {
-        let mut a = vec![0f32; n * DIM];
-        for x in a.iter_mut() { *x = randn(&mut rnd) * s; }
-        a
-    };
-    let model = mk(n_targets);
-    let ctx = mk(CTX_BUCKETS);
-    let temp = mk(1);
-    let top_p = mk(1);
-    let conf = mk(1);
-    Heads { model, model_b: vec![0f32; n_targets], ctx, ctx_b: vec![0f32; CTX_BUCKETS],
-            temp, temp_b: vec![0f32; 1], top_p, top_p_b: vec![0f32; 1], conf, conf_b: vec![0f32; 1] }
-}
-
-#[inline] fn sig(x: f32) -> f32 { 1.0 / (1.0 + (-x).exp()) }
-
-struct Fwd { h: Vec<f32>, ml: Vec<f32>, cl: Vec<f32>, tp: f32, top_p: f32, conf: f32 }
-
-fn forward(w: &Weights, hd: &Heads, x: &[f32], n_targets: usize) -> Fwd {
-    let mut proj = vec![0f32; RANK];
-    crate::simd::matvec(&w.v, RANK, IN, x, &mut proj);
-    let mut wx = vec![0f32; DIM];
-    crate::simd::matvec(&w.u, DIM, RANK, &proj, &mut wx);
-    let mut h = vec![0f32; DIM];
-    for d in 0..DIM { let pre = wx[d] + w.bh[d]; let z = sig(pre + w.bz[d]); h[d] = (1.0 - z) * pre.tanh(); }
-    let head = |wm: &[f32], b: &[f32], n: usize| {
-        let mut o = b.to_vec();
-        for k in 0..n { o[k] += crate::simd::dot(&wm[k * DIM..(k + 1) * DIM], &h); }
-        o
-    };
-    let ml = head(&hd.model, &hd.model_b, n_targets);
-    let cl = head(&hd.ctx, &hd.ctx_b, CTX_BUCKETS);
-    let tp = head(&hd.temp, &hd.temp_b, 1)[0];
-    let tpp = head(&hd.top_p, &hd.top_p_b, 1)[0];
-    let cf = head(&hd.conf, &hd.conf_b, 1)[0];
-    Fwd { h, ml, cl, tp: 0.1 + sig(tp) * 1.4, top_p: 0.5 + sig(tpp) * 0.5, conf: sig(cf) }
-}
-
-fn softmax_argmax(a: &[f32]) -> (usize, f32) {
-    let (mut mi, mut m) = (0usize, f32::NEG_INFINITY);
-    for (i, &v) in a.iter().enumerate() { if v > m { m = v; mi = i; } }
-    let mut s = 0.0; for &v in a { s += (v - m).exp(); }
-    (mi, (a[mi] - m).exp() / s)
-}
-
-fn softmax(a: &[f32]) -> Vec<f32> {
-    let m = a.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    let mut out: Vec<f32> = a.iter().map(|&v| (v - m).exp()).collect();
-    let s: f32 = out.iter().sum();
-    if s > 0.0 { for x in out.iter_mut() { *x /= s; } }
-    out
-}
-
-fn bucket_for_tokens(n: u64) -> u8 {
-    for (i, &cap) in BUCKET_CAPS.iter().enumerate() { if n <= cap { return i as u8; } }
-    4
-}
+#[path = "router_core.rs"]
+mod router_core;
+use router_core::*;
 
 pub struct Router {
     store: Arc<Store>,
@@ -149,6 +56,8 @@ pub struct Router {
     total_us: Arc<AtomicU64>,
     threshold_obs: Arc<AtomicU64>,
     traj_count_obs: Arc<AtomicU64>,
+    per_target_counts: Vec<Arc<AtomicU64>>,
+    per_target_quality_milli: Vec<Arc<AtomicU64>>,
 }
 
 impl Router {
@@ -158,14 +67,19 @@ impl Router {
             .and_then(|s| s.parse::<u64>().ok())
             .filter(|&n| n >= 1 && n <= 10_000)
             .unwrap_or(200);
+        let nt = targets.len();
+        let per_target_counts: Vec<Arc<AtomicU64>> = (0..nt).map(|_| Arc::new(AtomicU64::new(0))).collect();
+        let per_target_quality_milli: Vec<Arc<AtomicU64>> = (0..nt).map(|_| Arc::new(AtomicU64::new(500))).collect();
         let r = Self {
-            store, w: init_weights(), heads: init_heads(targets.len()),
+            store, w: init_weights(), heads: init_heads(nt),
             targets: targets.clone(), version: 0, trained: false, threshold,
             trajectory_count: 0,
             inference_count: Arc::new(AtomicU64::new(0)),
             total_us: Arc::new(AtomicU64::new(0)),
             threshold_obs: Arc::new(AtomicU64::new(threshold)),
             traj_count_obs: Arc::new(AtomicU64::new(0)),
+            per_target_counts: per_target_counts.clone(),
+            per_target_quality_milli: per_target_quality_milli.clone(),
         };
         let ic = r.inference_count.clone();
         let tu = r.total_us.clone();
@@ -175,9 +89,25 @@ impl Router {
         observability::register("router", move || {
             let n = ic.load(Ordering::Relaxed);
             let t = tu.load(Ordering::Relaxed);
-            json!({ "inferenceCount": n, "totalUs": t, "avgUs": if n>0 { t as f64 / n as f64 } else { 0.0 }, "targets": tnames.clone(), "threshold": thr.load(Ordering::Relaxed), "trajectoryCount": tc.load(Ordering::Relaxed) })
+            let counts: Vec<u64> = per_target_counts.iter().map(|a| a.load(Ordering::Relaxed)).collect();
+            let qualities: Vec<f64> = per_target_quality_milli.iter().map(|a| a.load(Ordering::Relaxed) as f64 / 1000.0).collect();
+            let mut per_target = serde_json::Map::new();
+            for (i, name) in tnames.iter().enumerate() {
+                per_target.insert(name.clone(), json!({ "count": counts[i], "avg_quality": qualities[i] }));
+            }
+            json!({ "inferenceCount": n, "totalUs": t, "avgUs": if n>0 { t as f64 / n as f64 } else { 0.0 }, "targets": tnames.clone(), "threshold": thr.load(Ordering::Relaxed), "trajectoryCount": tc.load(Ordering::Relaxed), "per_target": per_target })
         });
         r
+    }
+
+    pub fn record_outcome(&self, target: &str, quality: f32) {
+        let Some(idx) = self.targets.iter().position(|t| t == target) else { return };
+        let q = quality.clamp(0.0, 1.0) as f64;
+        let prior = self.per_target_quality_milli[idx].load(Ordering::Relaxed) as f64 / 1000.0;
+        let alpha = 0.1;
+        let new_q = (1.0 - alpha) * prior + alpha * q;
+        self.per_target_quality_milli[idx].store((new_q * 1000.0) as u64, Ordering::Relaxed);
+        self.per_target_counts[idx].fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn route(&self, emb: &[f32], ctx: &RouteCtx) -> Route {
@@ -225,226 +155,15 @@ impl Router {
         out
     }
 
-    pub fn train(&mut self, batch: &[TrainSample]) -> Result<usize> {
-        let mut applied = 0usize;
-        let nt = self.targets.len();
-        let base_lr = 0.05f32;
-        let epochs: usize = std::env::var("RS_LEARN_ROUTER_EPOCHS").ok()
-            .and_then(|v| v.parse().ok()).filter(|&n: &usize| n >= 1 && n <= 8).unwrap_or(2);
-        let mut order: Vec<usize> = (0..batch.len()).collect();
-        let mut rng = mulberry32(self.version.wrapping_add(1) as u32 ^ SEED);
-        for _epoch in 0..epochs {
-            for i in (1..order.len()).rev() {
-                let j = (rng() * (i as f32 + 1.0)) as usize;
-                order.swap(i, j.min(i));
-            }
-        for &bi in &order {
-            let tr = &batch[bi];
-            if tr.embedding.len() != IN { continue; }
-            let centered = tr.quality - 0.5;
-            if centered.abs() < 1e-4 { continue; }
-            let positive = centered > 0.0;
-            let Some(t_idx) = self.targets.iter().position(|t| t == &tr.chosen_target) else { continue };
-            let f = forward(&self.w, &self.heads, &tr.embedding, nt);
-            let sign = if positive { 1.0f32 } else { -1.0f32 };
-            let strength = centered.abs() * 2.0;
-            let lr = base_lr * strength;
-            let model_probs = softmax(&f.ml);
-            for k in 0..nt {
-                let err = model_probs[k] - if k == t_idx { 1.0 } else { 0.0 };
-                let off = k * DIM;
-                crate::simd::axpy(-sign * lr * err, &f.h, &mut self.heads.model[off..off + DIM]);
-                self.heads.model_b[k] -= sign * lr * err;
-            }
-            if positive {
-                let ctx_target = (bucket_for_tokens(tr.estimated_tokens) as usize).min(CTX_BUCKETS - 1);
-                let ctx_probs = softmax(&f.cl);
-                for k in 0..CTX_BUCKETS {
-                    let err = ctx_probs[k] - if k == ctx_target { 1.0 } else { 0.0 };
-                    let off = k * DIM;
-                    crate::simd::axpy(-lr * err, &f.h, &mut self.heads.ctx[off..off + DIM]);
-                    self.heads.ctx_b[k] -= lr * err;
-                }
-            }
-            applied += 1;
-        }
-        }
-        let unique = applied / epochs.max(1);
-        self.trajectory_count += unique as u64;
-        self.traj_count_obs.store(self.trajectory_count, Ordering::Relaxed);
-        if self.trajectory_count >= self.threshold { self.trained = true; }
-        Ok(unique)
-    }
-
-    fn pack(&self) -> Vec<u8> {
-        let parts: [&[f32]; 15] = [
-            &self.w.v, &self.w.u, &self.w.uh, &self.w.bh, &self.w.bz,
-            &self.heads.model, &self.heads.model_b, &self.heads.ctx, &self.heads.ctx_b,
-            &self.heads.temp, &self.heads.temp_b, &self.heads.top_p, &self.heads.top_p_b,
-            &self.heads.conf, &self.heads.conf_b,
-        ];
-        let n: usize = parts.iter().map(|p| p.len()).sum();
-        let mut flat = Vec::with_capacity(n);
-        for p in parts { flat.extend_from_slice(p); }
-        cast_slice::<f32, u8>(&flat).to_vec()
-    }
-
-    fn unpack(&mut self, bytes: &[u8]) -> Result<()> {
-        if bytes.len() % 4 != 0 { return Err(anyhow!("router: blob not f32-aligned")); }
-        let mut flat = vec![0f32; bytes.len() / 4];
-        cast_slice_mut::<f32, u8>(&mut flat).copy_from_slice(bytes);
-        let nt = self.targets.len();
-        let sizes = [RANK*IN, DIM*RANK, DIM*DIM, DIM, DIM, nt*DIM, nt, CTX_BUCKETS*DIM, CTX_BUCKETS, DIM, 1, DIM, 1, DIM, 1];
-        let total: usize = sizes.iter().sum();
-        if flat.len() != total { return Err(anyhow!("router: blob size mismatch want {} got {}", total, flat.len())); }
-        let mut o = 0usize;
-        let mut take = |n: usize| -> Vec<f32> { let s = flat[o..o+n].to_vec(); o += n; s };
-        self.w = Weights { v: take(RANK*IN), u: take(DIM*RANK), uh: take(DIM*DIM), bh: take(DIM), bz: take(DIM) };
-        self.heads = Heads {
-            model: take(nt*DIM), model_b: take(nt),
-            ctx: take(CTX_BUCKETS*DIM), ctx_b: take(CTX_BUCKETS),
-            temp: take(DIM), temp_b: take(1),
-            top_p: take(DIM), top_p_b: take(1),
-            conf: take(DIM), conf_b: take(1),
-        };
-        self.trained = true;
-        Ok(())
-    }
-
-    pub async fn save(&mut self) -> Result<i64> {
-        self.version += 1;
-        let blob = self.pack();
-        let meta = json!({ "dim": DIM, "sparsity": SPARSITY, "rank": RANK, "inputDim": IN, "nTargets": self.targets.len() });
-        self.store.save_router_weights(self.version, &blob, "fastgrnn", &meta).await?;
-        self.trained = true;
-        Ok(self.version)
-    }
-
-    pub async fn load(&mut self) -> Result<Option<i64>> {
-        let Some(row) = self.store.load_latest_router_weights().await? else { return Ok(None) };
-        self.unpack(&row.blob)?;
-        self.version = row.version;
-        Ok(Some(row.version))
-    }
 }
+
+#[path = "router_persist.rs"]
+mod router_persist;
+#[path = "router_train.rs"]
+mod router_train;
 
 impl Drop for Router {
     fn drop(&mut self) { observability::unregister("router"); }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[tokio::test]
-    async fn roundtrip() {
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let path = tmp.path().to_str().unwrap().to_string();
-        drop(tmp);
-        let store = Arc::new(Store::open(&path).await.unwrap());
-        let targets = vec!["a".to_string(), "b".to_string(), "c".to_string()];
-        let mut r = Router::new(store.clone(), targets.clone());
-        let emb = vec![0.01f32; IN];
-        let out = r.route(&emb, &RouteCtx { task_type: Some("default".into()), estimated_tokens: 500 });
-        assert_eq!(out.algo, "rule");
-        assert_eq!(out.context_bucket, 0);
-        r.trained = true;
-        let blob1 = r.pack();
-        r.save().await.unwrap();
-        drop(r);
-        let mut r2 = Router::new(store, targets);
-        let v = r2.load().await.unwrap();
-        assert_eq!(v, Some(1));
-        let blob2 = r2.pack();
-        assert_eq!(blob1, blob2, "round-trip bytes must match");
-        let t0 = std::time::Instant::now();
-        for _ in 0..100 { let _ = r2.route(&emb, &RouteCtx::default()); }
-        let per_us = t0.elapsed().as_micros() / 100;
-        assert!(per_us < 1000, "inference p50 {}us >= 1000us", per_us);
-    }
-
-    #[tokio::test]
-    async fn train_softmax_shifts_prediction_toward_chosen() {
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let path = tmp.path().to_str().unwrap().to_string();
-        drop(tmp);
-        let store = Arc::new(Store::open(&path).await.unwrap());
-        let targets = vec!["a".to_string(), "b".to_string(), "c".to_string()];
-        let mut r = Router::new(store, targets.clone());
-        let emb: Vec<f32> = (0..IN).map(|i| ((i as f32) * 0.01).sin()).collect();
-        let before = forward(&r.w, &r.heads, &emb, targets.len());
-        let samples: Vec<TrainSample> = (0..200).map(|_| TrainSample {
-            embedding: emb.clone(), chosen_target: "b".into(), quality: 0.95, estimated_tokens: 500,
-        }).collect();
-        let applied = r.train(&samples).unwrap();
-        assert_eq!(applied, 200);
-        let after = forward(&r.w, &r.heads, &emb, targets.len());
-        assert!(after.ml[1] - before.ml[1] > after.ml[0] - before.ml[0],
-            "logit for chosen target must grow faster than non-chosen");
-        assert!(after.ml[1] - before.ml[1] > after.ml[2] - before.ml[2]);
-        let max_abs = r.heads.model.iter().map(|x| x.abs()).fold(0f32, f32::max);
-        assert!(max_abs < 10.0, "weights should stay bounded under softmax training, got max {max_abs}");
-    }
-
-    #[tokio::test]
-    async fn epsilon_one_forces_non_argmax() {
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let path = tmp.path().to_str().unwrap().to_string();
-        drop(tmp);
-        let store = Arc::new(Store::open(&path).await.unwrap());
-        let targets = vec!["a".to_string(), "b".to_string(), "c".to_string()];
-        let mut r = Router::new(store, targets.clone());
-        r.trained = true;
-        let emb: Vec<f32> = (0..IN).map(|i| ((i as f32) * 0.01).sin()).collect();
-        std::env::set_var("RS_LEARN_ROUTER_EPSILON", "0.0");
-        std::env::remove_var("RS_LEARN_ROUTER_SEED");
-        let baseline = r.route(&emb, &RouteCtx::default());
-        assert!(!baseline.exploration);
-        std::env::set_var("RS_LEARN_ROUTER_EPSILON", "1.0");
-        std::env::set_var("RS_LEARN_ROUTER_SEED", "12345");
-        let explored = r.route(&emb, &RouteCtx::default());
-        std::env::remove_var("RS_LEARN_ROUTER_EPSILON");
-        std::env::remove_var("RS_LEARN_ROUTER_SEED");
-        assert!(explored.exploration, "epsilon=1.0 must always fire exploration");
-        assert_ne!(explored.model, baseline.model, "exploration must pick non-argmax");
-    }
-
-    #[tokio::test]
-    async fn router_threshold_env_override() {
-        std::env::set_var("RS_LEARN_ROUTER_THRESHOLD", "50");
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let path = tmp.path().to_str().unwrap().to_string();
-        drop(tmp);
-        let store = Arc::new(Store::open(&path).await.unwrap());
-        let targets = vec!["a".to_string(), "b".to_string()];
-        let mut r = Router::new(store, targets);
-        std::env::remove_var("RS_LEARN_ROUTER_THRESHOLD");
-        assert!(!r.trained, "should not be trained before threshold");
-        let emb: Vec<f32> = (0..IN).map(|i| ((i as f32) * 0.01).sin()).collect();
-        let samples: Vec<TrainSample> = (0..50).map(|_| TrainSample {
-            embedding: emb.clone(), chosen_target: "a".into(), quality: 0.9, estimated_tokens: 500,
-        }).collect();
-        r.train(&samples).unwrap();
-        assert!(r.trained, "router should be trained after 50 samples with threshold=50");
-        assert_eq!(r.threshold_obs.load(std::sync::atomic::Ordering::Relaxed), 50);
-        assert_eq!(r.traj_count_obs.load(std::sync::atomic::Ordering::Relaxed), 50);
-    }
-
-    #[tokio::test]
-    async fn epsilon_single_target_no_op() {
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let path = tmp.path().to_str().unwrap().to_string();
-        drop(tmp);
-        let store = Arc::new(Store::open(&path).await.unwrap());
-        let targets = vec!["only".to_string()];
-        let mut r = Router::new(store, targets);
-        r.trained = true;
-        let emb: Vec<f32> = (0..IN).map(|i| ((i as f32) * 0.01).sin()).collect();
-        std::env::set_var("RS_LEARN_ROUTER_EPSILON", "0.5");
-        std::env::set_var("RS_LEARN_ROUTER_SEED", "1");
-        let out = r.route(&emb, &RouteCtx::default());
-        std::env::remove_var("RS_LEARN_ROUTER_EPSILON");
-        std::env::remove_var("RS_LEARN_ROUTER_SEED");
-        assert!(!out.exploration);
-        assert_eq!(out.model, "only");
-    }
-}
+#[cfg(test)] #[path = "router_tests.rs"] mod tests;

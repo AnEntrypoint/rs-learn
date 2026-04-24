@@ -1,5 +1,5 @@
+use super::hints::{attention_hint, implicit_quality_from};
 use super::{Orchestrator, QueryOpts, QueryResult, RouteSnapshot};
-use crate::attention::{Context as AttnContext, Subgraph, SubgraphNode};
 use crate::learn::instant::{FeedbackPayload, InstantLoop};
 use crate::router::RouteCtx;
 use anyhow::{anyhow, Result};
@@ -73,6 +73,7 @@ impl Orchestrator {
 
         let t_h = Instant::now();
         let hints = self.reasoning.retrieve_for_query(text, 3).await.unwrap_or_default();
+        let hint_ids: Vec<String> = hints.iter().map(|h| h.id.clone()).collect();
         let hint_text = if hints.is_empty() { String::new() } else {
             format!("\n\nReasoning hints:\n{}", hints.iter().map(|h| format!("- {}", h.strategy)).collect::<Vec<_>>().join("\n"))
         };
@@ -103,7 +104,7 @@ impl Orchestrator {
         let implicit_quality = Some(implicit_quality_from(latency_ms, grounding, confidence));
         let request_id = {
             let mut il = self.instant.lock().await;
-            il.record_trajectory(Some(sid.clone()), training_emb, route_model, response_str, Some(text.to_string()), implicit_quality, latency_ms).await?
+            il.record_trajectory_full(Some(sid.clone()), training_emb, route_model, response_str, Some(text.to_string()), implicit_quality, latency_ms, hint_ids).await?
         };
         stages.insert("learn".into(), t_l.elapsed().as_millis() as u64);
 
@@ -116,12 +117,15 @@ impl Orchestrator {
     }
 
     pub async fn feedback(&self, request_id: &str, payload: FeedbackPayload) -> Result<()> {
-        let (sid_for_ema, emb_for_memory, query_for_memory) = {
+        let (sid_for_ema, emb_for_memory, query_for_memory, strategy_ids, route_model_for_outcome) = {
             let il = self.instant.lock().await;
-            let sid = il.pending.get(request_id).and_then(|p| p.session_id.clone());
-            let emb = il.pending.get(request_id).map(|p| p.embedding.clone());
-            let query = il.pending.get(request_id).and_then(|p| p.query_text.clone());
-            (sid, emb, query)
+            let p = il.pending.get(request_id);
+            let sid = p.and_then(|p| p.session_id.clone());
+            let emb = p.map(|p| p.embedding.clone());
+            let query = p.and_then(|p| p.query_text.clone());
+            let strats = p.map(|p| p.retrieved_strategies.clone()).unwrap_or_default();
+            let model = p.map(|p| p.route_model.clone()).unwrap_or_default();
+            (sid, emb, query, strats, model)
         };
         let effective_quality = {
             let mut map = self.sessions.write().await;
@@ -156,39 +160,21 @@ impl Orchestrator {
                 let _ = self.memory.add(crate::memory::NodeInput { id: None, payload: serde_json::json!({ "query": text }), embedding: emb, level: None }).await;
             }
         }
+        if !strategy_ids.is_empty() {
+            let _ = self.reasoning.record_outcome(&strategy_ids, effective_quality).await;
+        }
+        if !route_model_for_outcome.is_empty() {
+            let r = self.router.lock().await;
+            r.record_outcome(&route_model_for_outcome, effective_quality);
+        }
+        if let Some(ref sid) = sid_for_ema {
+            let ema = self.sessions.read().await.get(sid).map(|s| s.quality_ema).unwrap_or(0.5);
+            let _ = self.store.insert_session(&crate::store::SessionRow {
+                id: sid.clone(), created_at: None,
+                meta: Some(serde_json::json!({ "quality_ema": ema })),
+            }).await;
+        }
         Ok(())
     }
 }
 
-pub(super) fn attention_hint(ctx: &AttnContext, subgraph: &Subgraph) -> String {
-    let valid: Vec<(usize, &SubgraphNode)> = subgraph.nodes.iter().enumerate()
-        .filter(|(_, n)| n.embedding.as_ref().map(|e| e.len() == 768).unwrap_or(false))
-        .collect();
-    if valid.is_empty() || ctx.weights.is_empty() { return String::new(); }
-    let n = valid.len();
-    let mut mean = vec![0.0f32; n];
-    for head in &ctx.weights {
-        if head.len() != n { return String::new(); }
-        for (i, w) in head.iter().enumerate() { mean[i] += *w; }
-    }
-    let h = ctx.weights.len() as f32;
-    for v in mean.iter_mut() { *v /= h; }
-    let mut idx: Vec<usize> = (0..n).collect();
-    idx.sort_by(|a, b| mean[*b].partial_cmp(&mean[*a]).unwrap_or(std::cmp::Ordering::Equal));
-    let top: Vec<String> = idx.iter().take(3).map(|i| format!("- {} (attn={:.3})", valid[*i].1.id, mean[*i])).collect();
-    format!("\n\nTop-attended context:\n{}", top.join("\n"))
-}
-
-pub(super) fn implicit_quality_from(latency_ms: u64, grounding: Option<f32>, confidence: f32) -> f64 {
-    let latency_score = (5000.0f64 - (latency_ms as f64).min(5000.0)) / 5000.0;
-    let conf = confidence.clamp(0.0, 1.0) as f64;
-    match grounding {
-        None => (0.35 * latency_score + 0.15 * conf + 0.50 * 0.5).clamp(0.0, 1.0),
-        Some(g) => {
-            let ground = g.clamp(0.0, 1.0) as f64;
-            let q = 0.35 * latency_score + 0.50 * ground + 0.15 * conf;
-            if ground < 0.15 { return (q * 0.5).clamp(0.0, 1.0); }
-            q.clamp(0.0, 1.0)
-        }
-    }
-}

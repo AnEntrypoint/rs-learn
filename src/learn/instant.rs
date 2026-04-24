@@ -32,6 +32,7 @@ pub struct PendingInfo {
     pub query_text: Option<String>,
     pub created_at: Instant,
     pub created_ms: i64,
+    pub retrieved_strategies: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

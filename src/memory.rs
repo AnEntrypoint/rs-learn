@@ -34,7 +34,10 @@ struct Stats {
     search_count: AtomicU64,
     expand_count: AtomicU64,
     node_count: AtomicU64,
+    dedup_skipped: AtomicU64,
 }
+
+const DEDUP_THRESHOLD: f32 = 0.95;
 
 pub struct Memory {
     store: Arc<Store>,
@@ -55,15 +58,9 @@ fn rid() -> String {
     format!("m_{}_{}", now_ms(), suffix.to_lowercase())
 }
 
-fn row_get_str(r: &HashMap<String, libsql::Value>, k: &str) -> Option<String> {
-    match r.get(k)? { libsql::Value::Text(s) => Some(s.clone()), _ => None }
-}
-fn row_get_i64(r: &HashMap<String, libsql::Value>, k: &str) -> Option<i64> {
-    match r.get(k)? { libsql::Value::Integer(i) => Some(*i), _ => None }
-}
-fn row_get_f64(r: &HashMap<String, libsql::Value>, k: &str) -> Option<f64> {
-    match r.get(k)? { libsql::Value::Real(f) => Some(*f), libsql::Value::Integer(i) => Some(*i as f64), _ => None }
-}
+fn row_get_str(r: &HashMap<String, libsql::Value>, k: &str) -> Option<String> { match r.get(k)? { libsql::Value::Text(s) => Some(s.clone()), _ => None } }
+fn row_get_i64(r: &HashMap<String, libsql::Value>, k: &str) -> Option<i64> { match r.get(k)? { libsql::Value::Integer(i) => Some(*i), _ => None } }
+fn row_get_f64(r: &HashMap<String, libsql::Value>, k: &str) -> Option<f64> { match r.get(k)? { libsql::Value::Real(f) => Some(*f), libsql::Value::Integer(i) => Some(*i as f64), _ => None } }
 
 impl Memory {
     pub fn new(store: Arc<Store>) -> Self {
@@ -72,6 +69,7 @@ impl Memory {
             search_count: AtomicU64::new(0),
             expand_count: AtomicU64::new(0),
             node_count: AtomicU64::new(0),
+            dedup_skipped: AtomicU64::new(0),
         });
         let s2 = stats.clone();
         observability::register("memory", move || serde_json::json!({
@@ -79,6 +77,7 @@ impl Memory {
             "search_count": s2.search_count.load(Ordering::Relaxed),
             "expand_count": s2.expand_count.load(Ordering::Relaxed),
             "node_count": s2.node_count.load(Ordering::Relaxed),
+            "dedup_skipped": s2.dedup_skipped.load(Ordering::Relaxed),
             "M": M, "mL": m_l(),
         }));
         Self { store, stats }
@@ -98,6 +97,18 @@ impl Memory {
     }
 
     pub async fn add(&self, node: NodeInput) -> Result<String> {
+        if node.id.is_none() {
+            let top = self.store.vector_top_k("nodes", &node.embedding, 1, None).await.unwrap_or_default();
+            if let Some(row) = top.first() {
+                let sim = 1.0 - row_get_f64(row, "dist").unwrap_or(1.0) as f32;
+                if sim >= DEDUP_THRESHOLD {
+                    self.stats.dedup_skipped.fetch_add(1, Ordering::Relaxed);
+                    if let Some(existing_id) = row_get_str(row, "id") {
+                        return Ok(existing_id);
+                    }
+                }
+            }
+        }
         let nid = node.id.clone().unwrap_or_else(rid);
         let lvl = node.level.unwrap_or_else(sample_level);
         let summary = match &node.payload {
@@ -185,6 +196,4 @@ impl Memory {
     }
 }
 
-#[cfg(test)]
-#[path = "memory_tests.rs"]
-mod tests;
+#[cfg(test)] #[path = "memory_tests.rs"] mod tests;

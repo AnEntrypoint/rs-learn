@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Added
+- **Reasoning bank feedback loop** — `ReasoningBank::record_outcome(ids, quality)` updates `success_rate` with EMA (alpha=0.2) on every feedback; closes the learn loop so strategies that retrieved alongside successful/failed queries reinforce or decay. `Store` gains `update_reasoning_success_rate` + `get_reasoning_success_rate`. `PendingInfo` carries `retrieved_strategies`; `record_trajectory_full` accepts them.
+- **Session quality_ema persisted across restarts** — `sessions.meta` JSON now stores `quality_ema`; `Orchestrator::session()` loads on first access via `Store::load_session`, so per-session quality trajectory survives process restart.
+- **Router per-target observability** — `Router` now exposes `per_target: { count, avg_quality }` map in observability; `record_outcome(target, quality)` updates per-target EMA (alpha=0.1) on every feedback; diagnoses cold-start bias and exploration effectiveness at a glance.
+- **Memory semantic dedup** — `Memory::add` (id=None path) now checks top-1 neighbor similarity; cosine ≥ 0.95 returns existing id and increments `dedup_skipped` observability counter. Prevents HNSW bloat from near-duplicate query insertions.
+
 ### Fixed
 - **Router weights persist across restarts** — `Orchestrator::new_default` now calls `router.load()` after creation; previously all FastGRNN training was silently discarded on every restart.
 - **EWC params_snapshot persists across restarts** — `DeepLoop::consolidate` now persists `params_snapshot` to DB alongside Fisher via `save_params_snapshot_vec`; `load_fisher` restores it; `ewc_penalty` now returns > 0 after restart when adapter deviates from trained snapshot. Previously catastrophic-forgetting protection evaporated on every restart despite Fisher being saved.
