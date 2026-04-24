@@ -38,7 +38,32 @@ impl Store {
         }
         let store = Self { db, conn, path: path.to_string() };
         store.migrate().await?;
+        let _ = store.repair_fts_sync().await;
         Ok(store)
+    }
+
+    pub async fn repair_fts_sync(&self) -> Result<u64> {
+        let pairs: &[(&str, &str, &str, &str)] = &[
+            ("nodes", "nodes_fts", "id", "name,summary"),
+            ("edges", "edges_fts", "id", "fact"),
+            ("episodes", "episodes_fts", "id", "content"),
+            ("reasoning_bank", "reasoning_fts", "id", "strategy"),
+            ("communities", "communities_fts", "id", "name,summary"),
+        ];
+        let mut repaired = 0u64;
+        for (base, fts, key, _cols) in pairs {
+            let base_count = self.count_rows(base).await;
+            let fts_count = self.count_rows(fts).await;
+            if base_count < 0 || fts_count < 0 || base_count == fts_count { continue; }
+            let _ = self.conn.execute(&format!("DELETE FROM {fts}"), ()).await;
+            let rebuild = format!(
+                "INSERT OR REPLACE INTO {fts}({key}) SELECT {key} FROM {base}"
+            );
+            if self.conn.execute(&rebuild, ()).await.is_ok() {
+                repaired += 1;
+            }
+        }
+        Ok(repaired)
     }
 
     pub async fn migrate(&self) -> Result<()> {

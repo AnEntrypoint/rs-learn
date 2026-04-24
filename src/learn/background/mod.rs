@@ -49,6 +49,7 @@ pub struct BackgroundLoop {
     run_count: Arc<AtomicU64>,
     last_k: Arc<AtomicU64>,
     last_duration_ms: Arc<AtomicU64>,
+    last_evicted_reasoning: Arc<AtomicU64>,
 }
 
 impl BackgroundLoop {
@@ -56,16 +57,19 @@ impl BackgroundLoop {
         let run_count = Arc::new(AtomicU64::new(0));
         let last_k = Arc::new(AtomicU64::new(0));
         let last_duration_ms = Arc::new(AtomicU64::new(0));
+        let last_evicted_reasoning = Arc::new(AtomicU64::new(0));
         let this = Arc::new(Self {
             store, router, acp, reasoning, instant,
             k: DEFAULT_K, limit: env_limit(), seed: DEFAULT_SEED,
             run_count: run_count.clone(), last_k: last_k.clone(), last_duration_ms: last_duration_ms.clone(),
+            last_evicted_reasoning: last_evicted_reasoning.clone(),
         });
         observability::register("background", move || {
             json!({
                 "run_count": run_count.load(Ordering::Relaxed),
                 "last_k": last_k.load(Ordering::Relaxed),
                 "last_duration_ms": last_duration_ms.load(Ordering::Relaxed),
+                "last_evicted_reasoning": last_evicted_reasoning.load(Ordering::Relaxed),
             })
         });
         this
@@ -144,10 +148,24 @@ impl BackgroundLoop {
             n
         } else { 0 };
 
+        let ttl = std::env::var("RS_LEARN_REASONING_TTL_DAYS").ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .filter(|&n| n >= 1)
+            .unwrap_or(7);
+        let evicted_reasoning = self.store.evict_stale_reasoning(ttl, 0.3).await.unwrap_or(0);
+        let evicted_patterns = self.store.evict_noise_patterns().await.unwrap_or(0);
+        let keep = std::env::var("RS_LEARN_TRAJ_KEEP").ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|&n| n >= 500)
+            .unwrap_or(10_000);
+        let _ = self.store.prune_trajectories(keep).await;
+        let _ = self.store.prune_router_weights(5).await;
+
         let dur = t0.elapsed().as_millis();
         self.run_count.fetch_add(1, Ordering::Relaxed);
         self.last_k.store(patterns_written as u64, Ordering::Relaxed);
         self.last_duration_ms.store(dur as u64, Ordering::Relaxed);
+        self.last_evicted_reasoning.store(evicted_reasoning + evicted_patterns, Ordering::Relaxed);
         Ok(RunStats { clusters: kk, patterns_written, reasoning_written, trained_on, duration_ms: dur })
     }
 
@@ -350,5 +368,38 @@ mod tests {
         let estimated = (query.split_whitespace().count() * 4 / 3) as u64;
         assert!(estimated >= 10 && estimated <= 20,
             "expected estimated_tokens in [10,20] for 10-word query, got {estimated}");
+    }
+
+    #[tokio::test]
+    async fn eviction_removes_stale_low_quality_reasoning() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        drop(tmp);
+        let store = Arc::new(Store::open(&path).await.unwrap());
+
+        let now = crate::store::now_ms();
+        let eight_days_ago = now - (8 * 86_400_000);
+
+        for i in 0..5 {
+            store.insert_reasoning(&crate::store::types::ReasoningRow {
+                id: format!("stale-{}", i),
+                pattern_id: None,
+                strategy: "bad".into(),
+                success_rate: Some(0.1),
+                created_at: Some(eight_days_ago),
+            }).await.unwrap();
+        }
+        for i in 0..20 {
+            store.insert_reasoning(&crate::store::types::ReasoningRow {
+                id: format!("good-{}", i),
+                pattern_id: None,
+                strategy: "good".into(),
+                success_rate: Some(0.9),
+                created_at: Some(now),
+            }).await.unwrap();
+        }
+
+        let deleted = store.evict_stale_reasoning(7, 0.3).await.unwrap();
+        assert_eq!(deleted, 5, "expected exactly 5 stale rows deleted, got {deleted}");
     }
 }

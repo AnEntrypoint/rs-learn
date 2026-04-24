@@ -80,22 +80,26 @@ impl Orchestrator {
             Some(secs) => Some(tokio::spawn(background.clone().schedule(Duration::from_secs(secs)))),
             None => None,
         };
+        let sessions: Arc<RwLock<HashMap<String, Session>>> = Arc::new(RwLock::new(HashMap::new()));
         let queries = Arc::new(AtomicU64::new(0));
         let total_ms = Arc::new(AtomicU64::new(0));
         let q2 = queries.clone(); let t2 = total_ms.clone();
         let backend_name = acp.name();
+        let sessions_obs = Arc::clone(&sessions);
         observability::register("orchestrator", move || {
             let n = q2.load(Ordering::Relaxed);
             let t = t2.load(Ordering::Relaxed);
+            let sc = sessions_obs.try_read().map(|m| m.len()).unwrap_or(0);
             json!({
                 "queries_count": n,
                 "avg_latency_ms": if n > 0 { t as f64 / n as f64 } else { 0.0 },
                 "backend": backend_name,
+                "session_count": sc,
             })
         });
         Ok(Self {
             embedder, memory, attention, router, instant, reasoning, acp, rs_search,
-            sessions: Arc::new(RwLock::new(HashMap::new())),
+            sessions,
             store, search_root, embed_cache, spine,
             background: Some(background),
             deep,
@@ -108,7 +112,7 @@ impl Orchestrator {
         let sid = id.unwrap_or_else(|| format!("sess-{}", &uuid::Uuid::new_v4().to_string()[..8]));
         let mut map = self.sessions.write().await;
         let entry = map.entry(sid.clone()).or_insert_with(|| Session {
-            id: sid.clone(), created_at: crate::store::now_ms(), turns: 0, last_embedding: None,
+            id: sid.clone(), created_at: crate::store::now_ms(), turns: 0, last_embedding: None, quality_ema: 0.5,
         });
         entry.turns += 1;
         sid
@@ -214,7 +218,22 @@ impl Orchestrator {
     }
 
     pub async fn feedback(&self, request_id: &str, payload: FeedbackPayload) -> Result<()> {
-        let loss = (1.0 - payload.quality).max(0.0);
+        let sid_for_ema: Option<String> = {
+            let il = self.instant.lock().await;
+            il.pending.get(request_id).and_then(|p| p.session_id.clone())
+        };
+        let effective_quality = {
+            let mut map = self.sessions.write().await;
+            if let Some(ref sid) = sid_for_ema {
+                if let Some(sess) = map.get_mut(sid) {
+                    let smoothed = 0.7 * payload.quality + 0.3 * sess.quality_ema;
+                    sess.quality_ema = smoothed;
+                    smoothed
+                } else { payload.quality }
+            } else { payload.quality }
+        };
+        let smoothed_payload = FeedbackPayload { quality: effective_quality, ..payload };
+        let loss = (1.0 - effective_quality).max(0.0);
         let boundary = {
             let mut dl = self.deep.lock().await;
             dl.record_loss(loss).await.unwrap_or(false)
@@ -222,8 +241,8 @@ impl Orchestrator {
         {
             let mut il = self.instant.lock().await;
             let emb_before: Option<Vec<f32>> = il.pending.get(request_id).map(|p| p.embedding.clone());
-            let quality = payload.quality;
-            il.feedback(request_id, payload).await?;
+            let quality = effective_quality;
+            il.feedback(request_id, smoothed_payload).await?;
             if boundary {
                 if let Some(emb) = emb_before {
                     let flat = il.serialize_adapter_flat();
@@ -334,5 +353,20 @@ mod tests {
     fn implicit_quality_clamps_to_unit() {
         assert!((0.0..=1.0).contains(&implicit_quality_from(0, 1.0, 1.0)));
         assert!((0.0..=1.0).contains(&implicit_quality_from(u64::MAX, -1.0, -1.0)));
+    }
+
+    #[test]
+    fn session_ema_smooths_outlier_feedback() {
+        let default_ema: f32 = 0.5;
+        let raw_quality: f32 = 1.0;
+        let expected = 0.7 * raw_quality + 0.3 * default_ema;
+        let smoothed = 0.7 * raw_quality + 0.3 * default_ema;
+        assert!((smoothed - expected).abs() < 1e-6, "EMA formula mismatch: {smoothed} vs {expected}");
+        assert!((smoothed - 0.85).abs() < 1e-6, "first feedback on default EMA(0.5) with quality=1.0 should yield 0.85, got {smoothed}");
+        let mut ema = default_ema;
+        for &q in &[1.0f32, 0.0, 1.0, 0.0] {
+            ema = 0.7 * q + 0.3 * ema;
+        }
+        assert!((0.0..=1.0).contains(&ema), "EMA must stay in [0,1], got {ema}");
     }
 }

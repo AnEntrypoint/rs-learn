@@ -147,25 +147,35 @@ pub struct Router {
     trajectory_count: u64,
     inference_count: Arc<AtomicU64>,
     total_us: Arc<AtomicU64>,
+    threshold_obs: Arc<AtomicU64>,
+    traj_count_obs: Arc<AtomicU64>,
 }
 
 impl Router {
     pub fn new(store: Arc<Store>, targets: Vec<String>) -> Self {
         if targets.is_empty() { panic!("router: targets required"); }
+        let threshold = std::env::var("RS_LEARN_ROUTER_THRESHOLD").ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .filter(|&n| n >= 1 && n <= 10_000)
+            .unwrap_or(200);
         let r = Self {
             store, w: init_weights(), heads: init_heads(targets.len()),
-            targets: targets.clone(), version: 0, trained: false, threshold: 200,
+            targets: targets.clone(), version: 0, trained: false, threshold,
             trajectory_count: 0,
             inference_count: Arc::new(AtomicU64::new(0)),
             total_us: Arc::new(AtomicU64::new(0)),
+            threshold_obs: Arc::new(AtomicU64::new(threshold)),
+            traj_count_obs: Arc::new(AtomicU64::new(0)),
         };
         let ic = r.inference_count.clone();
         let tu = r.total_us.clone();
+        let thr = r.threshold_obs.clone();
+        let tc = r.traj_count_obs.clone();
         let tnames = targets;
         observability::register("router", move || {
             let n = ic.load(Ordering::Relaxed);
             let t = tu.load(Ordering::Relaxed);
-            json!({ "inferenceCount": n, "totalUs": t, "avgUs": if n>0 { t as f64 / n as f64 } else { 0.0 }, "targets": tnames.clone() })
+            json!({ "inferenceCount": n, "totalUs": t, "avgUs": if n>0 { t as f64 / n as f64 } else { 0.0 }, "targets": tnames.clone(), "threshold": thr.load(Ordering::Relaxed), "trajectoryCount": tc.load(Ordering::Relaxed) })
         });
         r
     }
@@ -261,6 +271,7 @@ impl Router {
         }
         let unique = applied / epochs.max(1);
         self.trajectory_count += unique as u64;
+        self.traj_count_obs.store(self.trajectory_count, Ordering::Relaxed);
         if self.trajectory_count >= self.threshold { self.trained = true; }
         Ok(unique)
     }
@@ -395,6 +406,27 @@ mod tests {
         std::env::remove_var("RS_LEARN_ROUTER_SEED");
         assert!(explored.exploration, "epsilon=1.0 must always fire exploration");
         assert_ne!(explored.model, baseline.model, "exploration must pick non-argmax");
+    }
+
+    #[tokio::test]
+    async fn router_threshold_env_override() {
+        std::env::set_var("RS_LEARN_ROUTER_THRESHOLD", "50");
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        drop(tmp);
+        let store = Arc::new(Store::open(&path).await.unwrap());
+        let targets = vec!["a".to_string(), "b".to_string()];
+        let mut r = Router::new(store, targets);
+        std::env::remove_var("RS_LEARN_ROUTER_THRESHOLD");
+        assert!(!r.trained, "should not be trained before threshold");
+        let emb: Vec<f32> = (0..IN).map(|i| ((i as f32) * 0.01).sin()).collect();
+        let samples: Vec<TrainSample> = (0..50).map(|_| TrainSample {
+            embedding: emb.clone(), chosen_target: "a".into(), quality: 0.9, estimated_tokens: 500,
+        }).collect();
+        r.train(&samples).unwrap();
+        assert!(r.trained, "router should be trained after 50 samples with threshold=50");
+        assert_eq!(r.threshold_obs.load(std::sync::atomic::Ordering::Relaxed), 50);
+        assert_eq!(r.traj_count_obs.load(std::sync::atomic::Ordering::Relaxed), 50);
     }
 
     #[tokio::test]

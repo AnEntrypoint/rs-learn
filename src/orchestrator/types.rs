@@ -4,12 +4,19 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Session {
     pub id: String,
     pub created_at: i64,
     pub turns: u64,
     pub last_embedding: Option<Vec<f32>>,
+    pub quality_ema: f32,
+}
+
+impl Default for Session {
+    fn default() -> Self {
+        Self { id: String::new(), created_at: 0, turns: 0, last_embedding: None, quality_ema: 0.5 }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
