@@ -72,6 +72,29 @@ Five non-obvious fixes shipped to improve training signal and prevent catastroph
 
 All five are interdependent: Fisher enables EWC++ protection when adapter resets; quality bias fix improves training from cold start; query loop closure feeds high-quality responses back to memory; expanded subgraph gives attention richer context; LLM sees payloads directly. Status: **FULLY IMPLEMENTED**.
 
+### Learning Pipeline Persistence Fixes (Session ~2026-04-24 continued)
+
+Two additional silent-failure fixes shipped after the five above:
+
+1. **Router weights persist across restarts** (`src/orchestrator/mod.rs`)
+   - Problem: `Orchestrator::new_default` never called `router.lock().await.load()`, so all FastGRNN training was silently discarded on every process restart
+   - Fix: Added `router.lock().await.load()` after router creation in `new_default`
+   - Impact: Learned routing weights survive restarts; training accumulates across sessions
+
+2. **EWC params_snapshot persists across restarts** (`src/store/write.rs`, `src/store/read.rs`, `src/learn/deep.rs`)
+   - Problem: `ewc_penalty` always returned 0 after restart because params_snapshot was never saved; only Fisher matrix was persisted
+   - Fix: Added `Store::save_params_snapshot_vec` (stores with `snap:` prefix in `ewc_fisher` table); `DeepLoop::consolidate` now saves it; `DeepLoop::load_fisher` now restores it
+   - Impact: EWC penalty is non-zero after restart when adapter deviates from prior solution; catastrophic forgetting protection survives restarts
+   - Rule: when adding EWC-style regularization, always persist BOTH the Fisher matrix AND the params snapshot
+
+### Module Structure After 200-line Hygiene Splits
+
+Files split to stay under 200 lines — do not consolidate back:
+- `src/learn/instant.rs` (struct + new() + adapter methods) / `src/learn/instant_io.rs` (hebbian_update, gc_pending, record_trajectory, feedback)
+- `src/learn/background/mod.rs` (struct + new() + schedule() + Drop) / `src/learn/background/run.rs` (run_once, summarize_cluster)
+- `src/store/read.rs` (vector_top_k, fts_search, load_*, list_recent_trajectories_with_embeddings) / `src/store/read_graph.rs` (get_edges_from, get_nodes_by_ids, get_node_embeddings, graph_walk, edges_between)
+- Tests extracted to: `instant_tests.rs`, `bg_tests.rs`, `deep_tests.rs`, `memory_tests.rs`
+
 ### Windows Subprocess Issues (Already in CLAUDE.md)
 
 See CLAUDE.md for:
