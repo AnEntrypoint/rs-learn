@@ -33,6 +33,7 @@ struct Stats {
     add_count: AtomicU64,
     search_count: AtomicU64,
     expand_count: AtomicU64,
+    node_count: AtomicU64,
 }
 
 pub struct Memory {
@@ -70,12 +71,14 @@ impl Memory {
             add_count: AtomicU64::new(0),
             search_count: AtomicU64::new(0),
             expand_count: AtomicU64::new(0),
+            node_count: AtomicU64::new(0),
         });
         let s2 = stats.clone();
         observability::register("memory", move || serde_json::json!({
             "add_count": s2.add_count.load(Ordering::Relaxed),
             "search_count": s2.search_count.load(Ordering::Relaxed),
             "expand_count": s2.expand_count.load(Ordering::Relaxed),
+            "node_count": s2.node_count.load(Ordering::Relaxed),
             "M": M, "mL": m_l(),
         }));
         Self { store, stats }
@@ -130,6 +133,7 @@ impl Memory {
             }
         }
         self.stats.add_count.fetch_add(1, Ordering::Relaxed);
+        self.stats.node_count.fetch_add(1, Ordering::Relaxed);
         Ok(nid)
     }
 

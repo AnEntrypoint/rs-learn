@@ -101,6 +101,28 @@ impl Store {
         Ok(out)
     }
 
+    pub async fn load_params_snapshot_vec(&self, param_id: &str) -> Result<Vec<f32>> {
+        let prefix = format!("snap:{}:", param_id);
+        let like = format!("{}%", prefix);
+        let mut rows = self.conn.query(
+            "SELECT param_id, value FROM ewc_fisher WHERE param_id LIKE ?1",
+            libsql::params![like],
+        ).await?;
+        let mut pairs: Vec<(usize, f32)> = Vec::new();
+        while let Some(row) = rows.next().await? {
+            let id: String = row.get(0)?;
+            let v: f64 = row.get(1)?;
+            let Some(idx_str) = id.strip_prefix(&prefix) else { continue };
+            let Ok(idx) = idx_str.parse::<usize>() else { continue };
+            pairs.push((idx, v as f32));
+        }
+        pairs.sort_by_key(|(i, _)| *i);
+        let n = pairs.last().map(|(i, _)| *i + 1).unwrap_or(0);
+        let mut out = vec![0f32; n];
+        for (i, v) in pairs { out[i] = v; }
+        Ok(out)
+    }
+
     pub async fn load_fisher(&self) -> Result<HashMap<String, f64>> {
         let mut rows = self.conn.query("SELECT param_id, value FROM ewc_fisher", ()).await?;
         let mut out = HashMap::new();

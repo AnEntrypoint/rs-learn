@@ -157,6 +157,11 @@ impl InstantLoop {
     pub fn targets_clone(&self) -> Vec<String> { self.targets.clone() }
     pub fn adapter_rank(&self) -> usize { RANK }
 
+    pub fn seed_replay(&mut self, embedding: Vec<f32>, quality: f32) {
+        if self.replay_buf.len() >= REPLAY_CAP { self.replay_buf.pop_front(); }
+        self.replay_buf.push_back((embedding, 0, quality));
+    }
+
     pub fn reset_adapter(&mut self) {
         self.adapter_a.fill(0.0);
         self.adapter_b.fill(0.0);

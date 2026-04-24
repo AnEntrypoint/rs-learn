@@ -130,6 +130,20 @@ impl BackgroundLoop {
             reasoning_written += 1;
         }
 
+        if let Some(instant) = &self.instant {
+            let seeds: Vec<(Vec<f32>, f32)> = preps.iter()
+                .filter(|p| p.members.len() > 0 && p.q_sum / p.members.len() as f64 >= 0.8)
+                .take(3)
+                .map(|p| (centroids[p.j].clone(), (p.q_sum / p.members.len() as f64) as f32))
+                .collect();
+            if !seeds.is_empty() {
+                let mut il = instant.lock().await;
+                for (centroid, quality) in seeds {
+                    il.seed_replay(centroid, quality);
+                }
+            }
+        }
+
         let mut batch: Vec<TrainSample> = Vec::new();
         for (i, (_, q, dec, query)) in meta.iter().enumerate() {
             let qf = *q as f32;

@@ -114,10 +114,10 @@ impl Store {
         Ok(())
     }
 
-    pub async fn save_fisher_vec(&self, param_id: &str, values: &[f32]) -> Result<()> {
+    async fn save_ewc_vec(&self, prefix: &str, values: &[f32]) -> Result<()> {
         let ts = now_ms();
         for (i, v) in values.iter().enumerate() {
-            let key = format!("{}:{}", param_id, i);
+            let key = format!("{}:{}", prefix, i);
             self.conn.execute(
                 "INSERT INTO ewc_fisher(param_id,value,updated_at) VALUES(?1,?2,?3)
                  ON CONFLICT(param_id) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
@@ -125,6 +125,14 @@ impl Store {
             ).await?;
         }
         Ok(())
+    }
+
+    pub async fn save_fisher_vec(&self, param_id: &str, values: &[f32]) -> Result<()> {
+        self.save_ewc_vec(param_id, values).await
+    }
+
+    pub async fn save_params_snapshot_vec(&self, param_id: &str, values: &[f32]) -> Result<()> {
+        self.save_ewc_vec(&format!("snap:{}", param_id), values).await
     }
 
     pub async fn add_preference_pair(&self, p: &PreferenceRow) -> Result<()> {
@@ -152,16 +160,12 @@ impl Store {
     }
 
     pub async fn evict_noise_patterns(&self) -> Result<u64> {
-        let affected = self.conn.execute(
-            "DELETE FROM patterns WHERE count < 3 AND (quality_sum / NULLIF(count, 0)) < 0.2",
-            (),
-        ).await?;
-        Ok(affected)
+        Ok(self.conn.execute("DELETE FROM patterns WHERE count < 3 AND (quality_sum / NULLIF(count, 0)) < 0.2", ()).await?)
     }
 
     pub async fn prune_trajectories(&self, keep: usize) -> Result<u64> {
         let keep = keep.max(500) as i64;
-        let affected = self.conn.execute(
+        Ok(self.conn.execute(
             "DELETE FROM trajectories WHERE id NOT IN (
                SELECT id FROM (
                  SELECT id FROM trajectories WHERE quality > 0.7
@@ -170,26 +174,20 @@ impl Store {
                )
              )",
             libsql::params![keep],
-        ).await?;
-        Ok(affected)
+        ).await?)
     }
 
     pub async fn prune_router_weights(&self, keep_versions: usize) -> Result<u64> {
-        let keep = keep_versions.max(1) as i64;
-        let affected = self.conn.execute(
-            "DELETE FROM router_weights WHERE version NOT IN (
-               SELECT version FROM router_weights ORDER BY version DESC LIMIT ?1
-             )",
-            libsql::params![keep],
-        ).await?;
-        Ok(affected)
+        Ok(self.conn.execute(
+            "DELETE FROM router_weights WHERE version NOT IN (SELECT version FROM router_weights ORDER BY version DESC LIMIT ?1)",
+            libsql::params![keep_versions.max(1) as i64],
+        ).await?)
     }
 
     pub async fn insert_session(&self, s: &SessionRow) -> Result<()> {
         let meta = s.meta.clone().unwrap_or_else(|| serde_json::json!({}));
         self.conn.execute(
-            "INSERT INTO sessions(id,created_at,meta) VALUES(?1,?2,?3)
-             ON CONFLICT(id) DO UPDATE SET meta=excluded.meta",
+            "INSERT INTO sessions(id,created_at,meta) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET meta=excluded.meta",
             libsql::params![s.id.clone(), s.created_at.unwrap_or_else(now_ms), serde_json::to_string(&meta)?],
         ).await?;
         Ok(())

@@ -61,6 +61,7 @@ impl Orchestrator {
         let memory = Arc::new(Memory::new(store.clone()));
         let attention = Arc::new(Attention::new(store.clone()));
         let router = Arc::new(Mutex::new(Router::new(store.clone(), targets.clone())));
+        { let mut r = router.lock().await; let _ = r.load().await; }
         let instant = Arc::new(Mutex::new(InstantLoop::new(store.clone(), router.clone(), targets.clone())));
         let reasoning = Arc::new(ReasoningBank::with_embedder(store.clone(), embedder.clone()));
         let acp = backend::from_env().map_err(|e| anyhow!("backend: {e}"))?;

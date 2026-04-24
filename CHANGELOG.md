@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+### Fixed
+- **Router weights persist across restarts** — `Orchestrator::new_default` now calls `router.load()` after creation; previously all FastGRNN training was silently discarded on every restart.
+- **EWC params_snapshot persists across restarts** — `DeepLoop::consolidate` now persists `params_snapshot` to DB alongside Fisher via `save_params_snapshot_vec`; `load_fisher` restores it; `ewc_penalty` now returns > 0 after restart when adapter deviates from trained snapshot. Previously catastrophic-forgetting protection evaporated on every restart despite Fisher being saved.
+
+### Added
+- **Memory node_count in observability** — `Memory` observability now reports `node_count` (live count, incremented on each `add()`); enables monitoring HNSW graph growth.
+- **BackgroundLoop seeds InstantLoop replay** — `BackgroundLoop.instant` field is now active; `run_once()` seeds the InstantLoop replay buffer with up to 3 high-quality cluster centroids (quality_sum/count ≥ 0.8) per run, bootstrapping per-request adapter training from background-discovered patterns.
+
 ### Refactor
 - **orchestrator/mod.rs split** — `query`, `feedback`, and helper functions moved to `orchestrator/pipeline.rs`; tests extracted to `orchestrator/tests.rs`. All three files now within 200-line hygiene limit (mod.rs=136, pipeline.rs=195, tests.rs=84).
 
