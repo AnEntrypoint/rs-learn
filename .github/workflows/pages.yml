@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -17,6 +17,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      pages_enabled: ${{ steps.check.outputs.enabled }}
     steps:
       - uses: actions/checkout@v4
 
@@ -24,7 +26,19 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Check if Pages is enabled
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh api repos/${{ github.repository }}/pages --jq '.status' > /dev/null 2>&1; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Convert content YAML to JSON
+        if: steps.check.outputs.enabled == 'true'
         run: |
           mkdir -p docs/data
           for f in content/pages/*.yml; do
@@ -33,13 +47,16 @@ jobs:
           done
 
       - uses: actions/configure-pages@v5
+        if: steps.check.outputs.enabled == 'true'
 
       - uses: actions/upload-pages-artifact@v3
+        if: steps.check.outputs.enabled == 'true'
         with:
           path: docs/
 
   deploy:
     needs: build
+    if: needs.build.outputs.pages_enabled == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
