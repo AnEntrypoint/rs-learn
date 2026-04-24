@@ -10,6 +10,7 @@
 
 ### Refactor
 - **orchestrator/mod.rs split** — `query`, `feedback`, and helper functions moved to `orchestrator/pipeline.rs`; tests extracted to `orchestrator/tests.rs`. All three files now within 200-line hygiene limit (mod.rs=136, pipeline.rs=195, tests.rs=84).
+- **200-line hygiene sweep** — split `instant.rs` (→ `instant_io.rs`), `background/mod.rs` (→ `background/run.rs`), `store/read.rs` (→ `store/read_graph.rs`), `memory.rs` (→ `memory_tests.rs`); all files now ≤200 lines. Tests extracted to sibling `*_tests.rs` files.
 
 ### Fixed
 - **Fisher persistence across restarts** — `Orchestrator::new_default` now calls `DeepLoop::load_fisher("adapter")` on startup so EWC++ regularization retains Fisher information across process restarts; previously Fisher was zeroed on every restart defeating catastrophic-forgetting protection.
