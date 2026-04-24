@@ -26,6 +26,7 @@ pub struct PendingInfo {
     pub session_id: Option<String>,
     pub embedding: Vec<f32>,
     pub route_model: String,
+    pub query_text: Option<String>,
     pub created_at: Instant,
     pub created_ms: i64,
 }
@@ -229,7 +230,7 @@ impl InstantLoop {
         let row = TrajectoryRow {
             id: request_id.clone(),
             session_id: session_id.clone(),
-            query: query_text,
+            query: query_text.clone(),
             query_embedding: Some(embedding.clone()),
             retrieved_ids: None,
             router_decision: Some(decision),
@@ -245,6 +246,7 @@ impl InstantLoop {
         }
         self.pending.insert(request_id.clone(), PendingInfo {
             session_id, embedding, route_model,
+            query_text,
             created_at: Instant::now(), created_ms,
         });
         self.pending_count.store(self.pending.len() as u64, Ordering::Relaxed);

@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+### Fixed
+- **Fisher persistence across restarts** — `Orchestrator::new_default` now calls `DeepLoop::load_fisher("adapter")` on startup so EWC++ regularization retains Fisher information across process restarts; previously Fisher was zeroed on every restart defeating catastrophic-forgetting protection.
+- **Cold-start implicit quality bias** — `implicit_quality_from` now accepts `Option<f32>` for grounding; when memory is empty (no neighbors) uses neutral 0.5 grounding instead of 0.0 which previously halved all early trajectory quality scores via the `ground < 0.15` penalty, poisoning initial router training.
+- **Attention hint uses node IDs correctly** — internal refactor aligns indexed node iteration with attention weight vector; no behavioural change but fixes potential off-by-one if node order differed.
+
+### Added
+- **Query→memory feedback loop** — `Orchestrator::feedback` now writes the query embedding + text to memory (via `Memory::add`) when `effective_quality >= 0.7`; previously queries never accumulated in the HNSW memory store, so ANN recall only operated over graph-ingested nodes. `PendingInfo` extended with `query_text` field to carry the text from `record_trajectory` to `feedback`.
+- **Multi-seed subgraph expansion** — `query()` now expands subgraph from top-3 neighbors (deduped) rather than only the top-1 hit; gives attention module 3× more structural context and reduces routing sensitivity to single nearest-neighbor quality.
+- **Memory context in LLM prompt** — top-3 neighbor payloads now included as "Memory context" block in the system prompt; previously neighbors influenced routing only via attention weights but their content never reached the LLM.
+
 ### Added
 - **npm wrapper package** — `npm/` directory added; `npx rs-learn` / `bunx rs-learn` now works. `postinstall.js` detects platform+arch, downloads correct binary from GitHub Releases (`v<version>`), places in `npm/bin/`. Covers all 6 release targets (linux x64/arm64, darwin x64/arm64, win32 x64/arm64). Graceful skip when no binary for platform with cargo fallback message.
 - **Automated npm publish** — `publish.yml` now publishes `npm/` package to npmjs.org on every release. Bumps `npm/package.json` version to match resolved semver before publish. Skips gracefully when `NPM_TOKEN` secret absent.
