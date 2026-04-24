@@ -20,7 +20,6 @@ use uuid::Uuid;
 const DEFAULT_K: usize = 100;
 const DEFAULT_LIMIT: usize = 1000;
 const DEFAULT_SEED: u32 = 42;
-const QUALITY_THRESHOLD: f32 = 0.7;
 
 fn env_limit() -> usize {
     std::env::var("RS_LEARN_BG_LIMIT").ok()
@@ -130,7 +129,6 @@ impl BackgroundLoop {
         let mut batch: Vec<TrainSample> = Vec::new();
         for (i, (_, q, dec, query)) in meta.iter().enumerate() {
             let qf = *q as f32;
-            if qf > 0.3 && qf < QUALITY_THRESHOLD { continue; }
             let model = serde_json::from_str::<serde_json::Value>(dec).ok()
                 .and_then(|v| v.get("model").and_then(|m| m.as_str()).map(String::from));
             let Some(chosen) = model else { continue };
@@ -254,6 +252,41 @@ mod tests {
         assert!(patterns > 0, "patterns table empty");
         let reasoning = store.count_rows("reasoning_bank").await;
         assert!(reasoning > 0, "reasoning_bank empty");
+    }
+
+    #[tokio::test]
+    async fn run_once_trains_middle_quality() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        drop(tmp);
+        let store = Arc::new(Store::open(&path).await.unwrap());
+        let targets = vec!["a".to_string(), "b".to_string()];
+        let router = Arc::new(Mutex::new(Router::new(store.clone(), targets)));
+        let reasoning = Arc::new(ReasoningBank::new(store.clone()));
+
+        let mut rng = mulberry32(17);
+        let qualities = [0.2f64, 0.55, 0.65, 0.9];
+        for (i, q) in qualities.iter().enumerate() {
+            let emb: Vec<f32> = (0..IN).map(|_| rng() - 0.5).collect();
+            let model = if i % 2 == 0 { "a" } else { "b" };
+            store.insert_trajectory(&TrajectoryRow {
+                id: format!("t{}", i),
+                session_id: Some("s".into()),
+                query: Some(format!("q{}", i)),
+                query_embedding: Some(emb),
+                retrieved_ids: None,
+                router_decision: Some(format!("{{\"model\":\"{}\"}}", model)),
+                response: Some("r".into()),
+                activations: None,
+                quality: Some(*q),
+                latency_ms: Some(1),
+                created_at: Some(2000 + i as i64),
+            }).await.unwrap();
+        }
+
+        let bg = BackgroundLoop::new(store.clone(), router.clone(), None, reasoning, None);
+        let stats = bg.run_once().await.unwrap();
+        assert_eq!(stats.trained_on, 4, "expected all 4 mid-band samples trained, got {}", stats.trained_on);
     }
 
     #[tokio::test]

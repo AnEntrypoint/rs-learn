@@ -216,8 +216,19 @@ impl Orchestrator {
         };
         {
             let mut il = self.instant.lock().await;
+            let emb_before: Option<Vec<f32>> = il.pending.get(request_id).map(|p| p.embedding.clone());
+            let quality = payload.quality;
             il.feedback(request_id, payload).await?;
-            if boundary { il.reset_adapter(); }
+            if boundary {
+                if let Some(emb) = emb_before {
+                    let flat = il.serialize_adapter_flat();
+                    let grads: Vec<f32> = flat.iter().enumerate()
+                        .map(|(i, _)| emb[i % emb.len()] * quality).collect();
+                    let mut dl = self.deep.lock().await;
+                    let _ = dl.consolidate("adapter", &flat, &grads).await;
+                }
+                il.reset_adapter();
+            }
         }
         Ok(())
     }

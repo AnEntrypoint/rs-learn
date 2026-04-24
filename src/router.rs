@@ -231,13 +231,13 @@ impl Router {
         for &bi in &order {
             let tr = &batch[bi];
             if tr.embedding.len() != IN { continue; }
-            let positive = tr.quality >= 0.7;
-            let negative = tr.quality <= 0.3;
-            if !positive && !negative { continue; }
+            let centered = tr.quality - 0.5;
+            if centered.abs() < 1e-4 { continue; }
+            let positive = centered > 0.0;
             let Some(t_idx) = self.targets.iter().position(|t| t == &tr.chosen_target) else { continue };
             let f = forward(&self.w, &self.heads, &tr.embedding, nt);
             let sign = if positive { 1.0f32 } else { -1.0f32 };
-            let strength = if positive { tr.quality } else { 0.3 - tr.quality };
+            let strength = centered.abs() * 2.0;
             let lr = base_lr * strength;
             let model_probs = softmax(&f.ml);
             for k in 0..nt {
