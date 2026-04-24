@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Changed
+- **InstantLoop dead-band removed** — replaced binary dead-band (`quality > 0.7` positive, `quality < 0.3` negative, else skip) with centered gradient `scale = (quality - 0.5) * 2.0`, covering full quality band. Only skips when `|quality - 0.5| < 1e-4`. Test `instant_mid_quality_trains_now` asserts mid-quality (0.55) now grows adapter.
+
 ### Added
 - **Prioritized replay sampling** — `InstantLoop::feedback` now picks replay entries weighted by `|scale|` (cumulative weighted pick) so high-impact transitions replay more often; uniform fallback when all scales zero. Test `prioritized_replay_favors_high_impact` asserts bias.
 - **EWC consolidation on boundary fires** — before `reset_adapter`, orchestrator calls `deep.consolidate("adapter", &adapter_flat, &pseudo_grads)` using `emb * quality` as Fisher proxy, protecting high-quality adapter weights across resets.

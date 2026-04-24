@@ -279,14 +279,14 @@ impl InstantLoop {
         }
         self.feedback_count.fetch_add(1, Ordering::Relaxed);
         if let Some(idx) = self.target_index(&model) {
-            let applied: Option<f32> = if payload.quality > 0.7 {
-                self.hebbian_update(&emb, idx, payload.quality);
-                Some(payload.quality)
-            } else if payload.quality < 0.3 {
-                let s = -(1.0 - payload.quality);
-                self.hebbian_update(&emb, idx, s);
-                Some(s)
-            } else { None };
+            let centered = payload.quality - 0.5;
+            let applied: Option<f32> = if centered.abs() < 1e-4 {
+                None
+            } else {
+                let scale = centered * 2.0;
+                self.hebbian_update(&emb, idx, scale);
+                Some(scale)
+            };
             if let Some(scale) = applied {
                 if self.replay_buf.len() >= REPLAY_CAP { self.replay_buf.pop_front(); }
                 self.replay_buf.push_back((emb.clone(), idx, scale));
@@ -423,5 +423,21 @@ mod tests {
             let i = weighted_pick(&buf, &mut seed);
             assert!(i < 4);
         }
+    }
+
+    #[tokio::test]
+    async fn instant_mid_quality_trains_now() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        drop(tmp);
+        let store = Arc::new(Store::open(&path).await.unwrap());
+        let targets = vec!["a".to_string(), "b".to_string()];
+        let router = Arc::new(Mutex::new(Router::new(store.clone(), targets.clone())));
+        let mut il = InstantLoop::new(store, router, targets);
+        let emb = vec![0.05f32; IN];
+        let rid = il.record_trajectory(Some("s1".into()), emb, "a".into(), "hello".into(), None, None, 0).await.unwrap();
+        assert_eq!(il.adapter_norm(), 0.0);
+        il.feedback(&rid, FeedbackPayload { quality: 0.55, signal: None }).await.unwrap();
+        assert!(il.adapter_norm() > 0.0, "adapter_norm must grow after mid-quality feedback (no dead-band)");
     }
 }
