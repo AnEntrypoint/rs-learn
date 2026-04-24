@@ -11,9 +11,9 @@ Layers:
 - **8-head graph attention** with edge features (relation one-hot + recency decay + weight)
 - **FastGRNN router** — sparse (90%) + low-rank (rank-8) matrices, softmax over ACP targets + context bucket + temperature + topP + confidence
 - **Learning loops**:
-  - **Instant (per-request, always on)** — trajectory capture + rank-2 MicroLoRA Hebbian adapter, norm-bounded to prevent runaway; logits fed into the router's softmax head on every route
-  - **Background (opt-in via `RS_LEARN_BG_INTERVAL_SEC=N`)** — k-means++ pattern extraction, LLM-summarized reasoning bank, softmax cross-entropy router retrain on quality≥0.7 trajectories, router weights persisted after each run
-  - **Deep (library-only, not yet scheduled)** — `DeepLoop` (EWC++ with online Fisher EMA decay 0.999 + z-score boundary detection) ships as a callable module; no default scheduler wires it into the orchestrator yet
+  - **Instant (per-request, always on)** — trajectory capture + rank-2 MicroLoRA Hebbian adapter, norm-bounded to prevent runaway; LR floor via `RS_LEARN_LR_MIN` (default 1e-3) prevents decay freeze; `|scale|`-weighted prioritized replay so high-impact transitions train more; logits fed into router softmax on every route
+  - **Background (opt-in via `RS_LEARN_BG_INTERVAL_SEC=N`)** — k-means++ pattern extraction, LLM-summarized reasoning bank, softmax cross-entropy router retrain on full quality band (no dead-band), router weights persisted after each run
+  - **Deep (wired, z-score boundary)** — `DeepLoop` (EWC++ with online Fisher EMA decay 0.999 + z-score boundary detection) is live in the orchestrator; on every `feedback()` loss is recorded; on boundary fires, adapter weights are EWC-consolidated before `reset_adapter()` to prevent catastrophic forgetting
 - **Observability** — HTTP `/debug/<subsystem>` per subsystem, structured tracing
 - **Exports** — safetensors router weights, patterns.jsonl, preferences.jsonl (DPO), HF push
 
