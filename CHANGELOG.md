@@ -1,4 +1,7 @@
-## [Unreleased]
+## [Unrele- **Remove BC wrapper** — `InstantLoop::record_trajectory_full` was a rename shim for `record_trajectory`. Deleted the thin wrapper; single entry point `record_trajectory(session, embedding, model, response, query, implicit_quality, latency_ms)`. All 4 call sites updated.
+- **CLAUDE.md corrected** — "dead modules" section was stale: DeepLoop is wired into `Orchestrator::feedback`, FederatedCoordinator already deleted. Replaced with current loop-wiring truth.
+
+ased]
 
 ### Added
 - **Router multi-epoch shuffled training** — `Router::train` now runs 2 epochs (env `RS_LEARN_ROUTER_EPOCHS=1..8`) with per-epoch Fisher-Yates shuffle, extracting more signal per background tick without growing batch size.

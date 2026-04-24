@@ -183,11 +183,7 @@ impl InstantLoop {
         self.pending_count.store(self.pending.len() as u64, Ordering::Relaxed);
     }
 
-    pub async fn record_trajectory(&mut self, session_id: Option<String>, embedding: Vec<f32>, route_model: String, response: String) -> Result<RequestId> {
-        self.record_trajectory_full(session_id, embedding, route_model, response, None, None, 0).await
-    }
-
-    pub async fn record_trajectory_full(
+    pub async fn record_trajectory(
         &mut self,
         session_id: Option<String>,
         embedding: Vec<f32>,
@@ -296,7 +292,7 @@ mod tests {
         let router = Arc::new(Mutex::new(Router::new(store.clone(), targets.clone())));
         let mut il = InstantLoop::new(store, router, targets);
         let emb = vec![0.05f32; IN];
-        let rid = il.record_trajectory(Some("s1".into()), emb, "a".into(), "hello".into()).await.unwrap();
+        let rid = il.record_trajectory(Some("s1".into()), emb, "a".into(), "hello".into(), None, None, 0).await.unwrap();
         assert_eq!(il.adapter_norm(), 0.0);
         il.feedback(&rid, FeedbackPayload { quality: 1.0, signal: None }).await.unwrap();
         assert!(il.adapter_norm() > 0.0, "adapter_norm must grow after positive feedback");
@@ -315,7 +311,7 @@ mod tests {
         let router = Arc::new(Mutex::new(Router::new(store.clone(), targets.clone())));
         let mut il = InstantLoop::new(store.clone(), router, targets);
         let emb = vec![0.03f32; IN];
-        il.record_trajectory_full(Some("s".into()), emb, "a".into(), "resp".into(),
+        il.record_trajectory(Some("s".into()), emb, "a".into(), "resp".into(),
             Some("why is the sky blue".into()), Some(0.85), 42).await.unwrap();
         let rows = store.list_recent_trajectories_with_embeddings(10).await.unwrap();
         assert_eq!(rows.len(), 1);
@@ -340,7 +336,7 @@ mod tests {
         let mut il = InstantLoop::new(store.clone(), router.clone(), targets.clone());
         let emb: Vec<f32> = (0..IN).map(|i| ((i as f32) * 0.013).sin()).collect();
 
-        let rid = il.record_trajectory(Some("s".into()), emb.clone(), "b".into(), "resp".into()).await.unwrap();
+        let rid = il.record_trajectory(Some("s".into()), emb.clone(), "b".into(), "resp".into(), None, None, 0).await.unwrap();
         il.feedback(&rid, FeedbackPayload { quality: 1.0, signal: None }).await.unwrap();
 
         let a = il.adapter_a.clone();

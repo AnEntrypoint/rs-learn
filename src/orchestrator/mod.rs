@@ -190,7 +190,7 @@ impl Orchestrator {
         let implicit_quality = Some(implicit_quality_from(latency_ms, grounding, confidence));
         let request_id = {
             let mut il = self.instant.lock().await;
-            il.record_trajectory_full(Some(sid.clone()), emb.clone(), route_model, response_str, Some(text.to_string()), implicit_quality, latency_ms).await?
+            il.record_trajectory(Some(sid.clone()), emb.clone(), route_model, response_str, Some(text.to_string()), implicit_quality, latency_ms).await?
         };
         stages.insert("learn".into(), t_l.elapsed().as_millis() as u64);
 

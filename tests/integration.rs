@@ -200,7 +200,7 @@ async fn section_06_instant_loop_adapter_grows_on_positive_feedback() {
     assert_eq!(il.adapter_norm(), 0.0, "fresh adapter norm must be 0");
 
     for i in 0..5u32 {
-        let rid = il.record_trajectory(Some("sess".into()), rand_emb(i), "a".into(), "resp".into()).await
+        let rid = il.record_trajectory(Some("sess".into()), rand_emb(i), "a".into(), "resp".into(), None, None, 0).await
             .expect("record trajectory");
         il.feedback(&rid, FeedbackPayload { quality: 1.0, signal: None }).await.expect("feedback");
     }
@@ -255,7 +255,7 @@ async fn section_09_background_kmeans_deterministic_and_runs() {
     {
         let mut ilg = il.lock().await;
         for i in 0..20u32 {
-            let rid = ilg.record_trajectory(Some("s".into()), rand_emb(i * 11), "a".into(), "r".into()).await.unwrap();
+            let rid = ilg.record_trajectory(Some("s".into()), rand_emb(i * 11), "a".into(), "r".into(), None, None, 0).await.unwrap();
             ilg.feedback(&rid, FeedbackPayload { quality: 0.85, signal: None }).await.unwrap();
         }
     }
@@ -472,7 +472,7 @@ async fn instant_adapter_bounded_under_runaway_feedback() {
     let mut il = InstantLoop::new(store, router, targets);
     let emb = rand_emb(99);
     for _ in 0..500 {
-        let rid = il.record_trajectory(None, emb.clone(), "a".into(), "r".into()).await.unwrap();
+        let rid = il.record_trajectory(None, emb.clone(), "a".into(), "r".into(), None, None, 0).await.unwrap();
         il.feedback(&rid, FeedbackPayload { quality: 1.0, signal: None }).await.unwrap();
     }
     let norm = il.adapter_norm();
