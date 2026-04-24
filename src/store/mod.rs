@@ -2,6 +2,7 @@ pub mod schema;
 pub mod triggers;
 pub mod types;
 pub mod read;
+mod read_graph;
 pub mod write;
 
 pub use types::*;
