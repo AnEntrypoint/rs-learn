@@ -2,7 +2,7 @@
 
 A continual-learning orchestrator wrapped around any [Agent Client Protocol](https://agentclientprotocol.com) stdio agent. Gives an otherwise-stateless ACP agent persistent memory, adaptive routing, and learning loops that compress trajectories into reusable strategies and exportable LoRA / DPO training artefacts.
 
-**Pure Rust.** Single binary, no Node, no npm.
+**Pure Rust binary.** Installable via npm/bun for zero-Rust workflows.
 
 Layers:
 
@@ -18,6 +18,24 @@ Layers:
 - **Exports** — safetensors router weights, patterns.jsonl, preferences.jsonl (DPO), HF push
 
 ## Install
+
+### npm / bun (no Rust required)
+
+```bash
+npx rs-learn query "What's Alice's role?"
+bunx rs-learn query "What's Alice's role?"
+```
+
+Or install globally:
+
+```bash
+npm install -g rs-learn
+bun add -g rs-learn
+```
+
+Postinstall downloads the correct platform binary from GitHub Releases. Supported: linux x64/arm64, macOS x64/arm64, Windows x64/arm64.
+
+### Cargo
 
 ```bash
 cargo install --git https://github.com/AnEntrypoint/rs-learn
