@@ -1,6 +1,10 @@
 ## [Unreleased]
 
 ### Added
+- **EWC penalty wired into InstantLoop adapter training** — `DeepLoop::ewc_state(param_id)` returns `(fisher, snapshot, lambda)` triple; `InstantLoop` gains `ewc: Option<EwcState>` + `set_ewc_state`; `hebbian_update` subtracts `lr · λ · F · (θ − θ*)` on every step when state is set. Pipeline populates it on EWC-boundary consolidation and at orchestrator startup if Fisher was previously saved. Previously `ewc_penalty` was dead code — Fisher accumulated but never regularized training, leaving catastrophic-forgetting protection inert despite the claim in docs.
+- **Attention learns from feedback via `nudge_relation`** — `Attention.we` is now `Mutex<Vec<f32>>`; `nudge_relation(rel, signed_quality)` scales the matching relation column by `1 + alpha · q` (alpha=0.05, q clamped to [-1,1]). Pipeline extracts the dominant subgraph edge relation at query time, stashes it in `PendingInfo.dominant_relation`, and on feedback calls `attention.nudge_relation` with `(quality − 0.5) · 2`. Closes the last frozen-weights gap in the learning surface: successful retrievals now amplify the relation paths that produced them.
+
+### Added
 - **Reasoning bank feedback loop** — `ReasoningBank::record_outcome(ids, quality)` updates `success_rate` with EMA (alpha=0.2) on every feedback; closes the learn loop so strategies that retrieved alongside successful/failed queries reinforce or decay. `Store` gains `update_reasoning_success_rate` + `get_reasoning_success_rate`. `PendingInfo` carries `retrieved_strategies`; `record_trajectory_full` accepts them.
 - **Session quality_ema persisted across restarts** — `sessions.meta` JSON now stores `quality_ema`; `Orchestrator::session()` loads on first access via `Store::load_session`, so per-session quality trajectory survives process restart.
 - **Router per-target observability** — `Router` now exposes `per_target: { count, avg_quality }` map in observability; `record_outcome(target, quality)` updates per-target EMA (alpha=0.1) on every feedback; diagnoses cold-start bias and exploration effectiveness at a glance.

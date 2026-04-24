@@ -33,6 +33,7 @@ pub struct PendingInfo {
     pub created_at: Instant,
     pub created_ms: i64,
     pub retrieved_strategies: Vec<String>,
+    pub dominant_relation: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -42,6 +43,12 @@ pub struct FeedbackPayload {
     pub signal: Option<String>,
 }
 
+pub struct EwcState {
+    pub fisher: Vec<f32>,
+    pub snapshot: Vec<f32>,
+    pub lambda: f32,
+}
+
 pub struct InstantLoop {
     pub store: Arc<Store>,
     pub router: Arc<Mutex<Router>>,
@@ -49,6 +56,7 @@ pub struct InstantLoop {
     pub adapter_b: Vec<f32>,
     pub pending: HashMap<RequestId, PendingInfo>,
     pub spine: Option<Arc<crate::spine::TrajectorySpine>>,
+    pub ewc: Option<EwcState>,
     targets: Vec<String>,
     n_targets: usize,
     lr: f32,
@@ -67,23 +75,6 @@ fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
-pub(crate) fn weighted_pick(buf: &std::collections::VecDeque<(Vec<f32>, usize, f32)>, seed: &mut u32) -> usize {
-    let n = buf.len();
-    *seed = seed.wrapping_mul(2654435761).wrapping_add(1);
-    let r = (*seed as f32) / (u32::MAX as f32 + 1.0);
-    let total: f32 = buf.iter().map(|(_, _, s)| s.abs()).sum();
-    if !(total > 0.0) {
-        return ((*seed as usize) % n).min(n - 1);
-    }
-    let target = r * total;
-    let mut acc = 0f32;
-    for (i, (_, _, s)) in buf.iter().enumerate() {
-        acc += s.abs();
-        if target < acc { return i; }
-    }
-    n - 1
-}
-
 impl InstantLoop {
     pub fn new(store: Arc<Store>, router: Arc<Mutex<Router>>, targets: Vec<String>) -> Self {
         let n_targets = targets.len().max(1);
@@ -98,6 +89,7 @@ impl InstantLoop {
             adapter_b: vec![0f32; RANK * n_targets],
             pending: HashMap::new(),
             spine: None,
+            ewc: None,
             targets, n_targets, lr: LR0, lr_min,
             feedback_count: Arc::new(AtomicU64::new(0)),
             adapter_norm_milli: Arc::new(AtomicU64::new(0)),
@@ -164,6 +156,12 @@ impl InstantLoop {
     pub fn seed_replay(&mut self, embedding: Vec<f32>, quality: f32) {
         if self.replay_buf.len() >= REPLAY_CAP { self.replay_buf.pop_front(); }
         self.replay_buf.push_back((embedding, 0, quality));
+    }
+
+    pub fn set_ewc_state(&mut self, fisher: Vec<f32>, snapshot: Vec<f32>, lambda: f32) {
+        let expected = self.adapter_a.len() + self.adapter_b.len();
+        if fisher.len() != expected || snapshot.len() != expected || !(lambda.is_finite() && lambda >= 0.0) { return; }
+        self.ewc = Some(EwcState { fisher, snapshot, lambda });
     }
 
     pub fn reset_adapter(&mut self) {

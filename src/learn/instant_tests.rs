@@ -94,7 +94,7 @@ fn prioritized_replay_favors_high_impact() {
     buf.push_back((vec![0f32; IN], 3, 0.9));
     let mut seed: u32 = 0x9E3779B1;
     let mut hits = 0usize;
-    for _ in 0..1000 { if weighted_pick(&buf, &mut seed) == 3 { hits += 1; } }
+    for _ in 0..1000 { if super::instant_io::weighted_pick(&buf, &mut seed) == 3 { hits += 1; } }
     assert!(hits > 500, "expected index 3 picked > 500, got {hits}");
 }
 
@@ -103,7 +103,29 @@ fn weighted_pick_zero_total_fallback_uniform() {
     let mut buf: std::collections::VecDeque<(Vec<f32>, usize, f32)> = std::collections::VecDeque::new();
     for i in 0..4 { buf.push_back((vec![0f32; IN], i, 0.0)); }
     let mut seed: u32 = 12345;
-    for _ in 0..50 { assert!(weighted_pick(&buf, &mut seed) < 4); }
+    for _ in 0..50 { assert!(super::instant_io::weighted_pick(&buf, &mut seed) < 4); }
+}
+
+#[tokio::test]
+async fn ewc_penalty_pulls_adapter_toward_snapshot() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    let path = tmp.path().to_str().unwrap().to_string();
+    drop(tmp);
+    let store = Arc::new(Store::open(&path).await.unwrap());
+    let targets = vec!["a".to_string()];
+    let router = Arc::new(Mutex::new(Router::new(store.clone(), targets.clone())));
+    let mut il_free = InstantLoop::new(store.clone(), router.clone(), targets.clone());
+    let mut il_ewc = InstantLoop::new(store.clone(), router.clone(), targets.clone());
+    let total = IN * RANK + RANK * 1;
+    let snapshot = vec![0f32; total];
+    let fisher = vec![1.0f32; total];
+    il_ewc.set_ewc_state(fisher, snapshot, 50.0);
+    let emb = vec![0.05f32; IN];
+    for _ in 0..3 { il_free.hebbian_update(&emb, 0, 1.0); }
+    for _ in 0..3 { il_ewc.hebbian_update(&emb, 0, 1.0); }
+    assert!(il_ewc.adapter_norm() < il_free.adapter_norm(),
+        "EWC must pull adapter toward snapshot: free={} ewc={}",
+        il_free.adapter_norm(), il_ewc.adapter_norm());
 }
 
 #[tokio::test]

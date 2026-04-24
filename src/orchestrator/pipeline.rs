@@ -102,9 +102,18 @@ impl Orchestrator {
         let latency_ms = t0.elapsed().as_millis() as u64;
         let grounding = neighbors.first().map(|n| n.score.clamp(0.0, 1.0));
         let implicit_quality = Some(implicit_quality_from(latency_ms, grounding, confidence));
+        let dominant_relation: Option<String> = {
+            let mut counts: HashMap<String, u32> = HashMap::new();
+            for e in &subgraph.edges {
+                if let Some(r) = e.relation.as_deref() {
+                    *counts.entry(r.split("-L").next().unwrap_or(r).to_string()).or_insert(0) += 1;
+                }
+            }
+            counts.into_iter().max_by_key(|(_, c)| *c).map(|(r, _)| r)
+        };
         let request_id = {
             let mut il = self.instant.lock().await;
-            il.record_trajectory_full(Some(sid.clone()), training_emb, route_model, response_str, Some(text.to_string()), implicit_quality, latency_ms, hint_ids).await?
+            il.record_trajectory_full(Some(sid.clone()), training_emb, route_model, response_str, Some(text.to_string()), implicit_quality, latency_ms, hint_ids, dominant_relation).await?
         };
         stages.insert("learn".into(), t_l.elapsed().as_millis() as u64);
 
@@ -117,7 +126,7 @@ impl Orchestrator {
     }
 
     pub async fn feedback(&self, request_id: &str, payload: FeedbackPayload) -> Result<()> {
-        let (sid_for_ema, emb_for_memory, query_for_memory, strategy_ids, route_model_for_outcome) = {
+        let (sid_for_ema, emb_for_memory, query_for_memory, strategy_ids, route_model_for_outcome, dominant_relation) = {
             let il = self.instant.lock().await;
             let p = il.pending.get(request_id);
             let sid = p.and_then(|p| p.session_id.clone());
@@ -125,7 +134,8 @@ impl Orchestrator {
             let query = p.and_then(|p| p.query_text.clone());
             let strats = p.map(|p| p.retrieved_strategies.clone()).unwrap_or_default();
             let model = p.map(|p| p.route_model.clone()).unwrap_or_default();
-            (sid, emb, query, strats, model)
+            let rel = p.and_then(|p| p.dominant_relation.clone());
+            (sid, emb, query, strats, model, rel)
         };
         let effective_quality = {
             let mut map = self.sessions.write().await;
@@ -151,6 +161,9 @@ impl Orchestrator {
                     let grads: Vec<f32> = flat.iter().enumerate().map(|(i, _)| emb[i % emb.len()] * quality).collect();
                     let mut dl = self.deep.lock().await;
                     let _ = dl.consolidate("adapter", &flat, &grads).await;
+                    if let Some((f, s, lam)) = dl.ewc_state("adapter") {
+                        il.set_ewc_state(f, s, lam);
+                    }
                 }
                 il.reset_adapter();
             }
@@ -166,6 +179,10 @@ impl Orchestrator {
         if !route_model_for_outcome.is_empty() {
             let r = self.router.lock().await;
             r.record_outcome(&route_model_for_outcome, effective_quality);
+        }
+        if let Some(rel) = dominant_relation.as_deref() {
+            let signed = (effective_quality - 0.5) * 2.0;
+            self.attention.nudge_relation(rel, signed);
         }
         if let Some(ref sid) = sid_for_ema {
             let ema = self.sessions.read().await.get(sid).map(|s| s.quality_ema).unwrap_or(0.5);

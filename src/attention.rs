@@ -3,8 +3,7 @@ use crate::store::Store;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
 
 const WEEK_MS: f32 = 7.0 * 24.0 * 60.0 * 60.0 * 1000.0;
 const RELATION_VOCAB: &[&str] = &["hnsw-neighbor", "entity", "mention", "episode", "saga"];
@@ -53,43 +52,16 @@ pub struct Attention {
     wq: Vec<f32>,
     wk: Vec<f32>,
     wv: Vec<f32>,
-    we: Vec<f32>,
+    we: Mutex<Vec<f32>>,
     wo: Vec<f32>,
     inv_sqrt_head: f32,
     stats: Arc<Stats>,
 }
 
-fn mulberry32(seed: u32) -> impl FnMut() -> f32 {
-    let mut a: u32 = seed;
-    move || {
-        a = a.wrapping_add(0x6D2B79F5);
-        let mut t = a;
-        t = (t ^ (t >> 15)).wrapping_mul(t | 1);
-        t ^= t.wrapping_add((t ^ (t >> 7)).wrapping_mul(t | 61));
-        ((t ^ (t >> 14)) as f32) / 4294967296.0
-    }
-}
-
-fn rand_matrix(rows: usize, cols: usize, rng: &mut impl FnMut() -> f32, scale: f32) -> Vec<f32> {
-    let mut m = vec![0.0f32; rows * cols];
-    for v in m.iter_mut() { *v = (rng() * 2.0 - 1.0) * scale; }
-    m
-}
-
+#[path = "attention_math.rs"] mod attention_math;
+use attention_math::{mulberry32, rand_matrix, layer_norm, now_ms_f32};
 use crate::simd::{axpy, dot, matvec};
 use rayon::prelude::*;
-
-fn layer_norm(x: &[f32]) -> Vec<f32> {
-    let n = x.len() as f32;
-    let mean: f32 = x.iter().sum::<f32>() / n;
-    let var: f32 = x.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / n;
-    let inv = 1.0 / (var + 1e-5).sqrt();
-    x.iter().map(|v| (v - mean) * inv).collect()
-}
-
-fn now_ms_f32() -> f32 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as f32).unwrap_or(0.0)
-}
 
 impl Attention {
     pub fn new(store: Arc<Store>) -> Self {
@@ -124,7 +96,22 @@ impl Attention {
             })
         });
         Self { _store: store, dim, heads, head_dim, proj_dim, edge_feat_dim,
-            wq, wk, wv, we, wo, inv_sqrt_head: 1.0 / (head_dim as f32).sqrt(), stats }
+            wq, wk, wv, we: Mutex::new(we), wo, inv_sqrt_head: 1.0 / (head_dim as f32).sqrt(), stats }
+    }
+
+    pub fn nudge_relation(&self, relation: &str, signed_quality: f32) {
+        if !signed_quality.is_finite() { return; }
+        let rel = relation.split("-L").next().unwrap_or("");
+        let Some(idx) = RELATION_VOCAB.iter().position(|r| *r == rel) else { return };
+        let alpha: f32 = 0.05;
+        let scale = 1.0 + signed_quality.clamp(-1.0, 1.0) * alpha;
+        let stride = self.edge_feat_dim;
+        if let Ok(mut g) = self.we.lock() {
+            for h in 0..self.head_dim {
+                let off = h * stride + idx;
+                if off < g.len() { g[off] *= scale; }
+            }
+        }
     }
 
     pub fn attend(&self, query_emb: &[f32], subgraph: &Subgraph) -> Result<Context> {
@@ -160,6 +147,7 @@ impl Attention {
         let now = now_ms_f32();
         let mut edge_by_dst: std::collections::HashMap<&str, &SubgraphEdge> = std::collections::HashMap::new();
         for e in &subgraph.edges { edge_by_dst.entry(e.dst.as_str()).or_insert(e); }
+        let we_snap: Vec<f32> = self.we.lock().map(|g| g.clone()).unwrap_or_default();
         let mut e_proj = vec![0.0f32; self.head_dim];
         let mut feat = vec![0.0f32; self.edge_feat_dim];
         for (i, (node, _, ts)) in valid.iter().enumerate() {
@@ -169,7 +157,7 @@ impl Attention {
             if let Some(idx) = RELATION_VOCAB.iter().position(|r| *r == rel) { feat[idx] = 1.0; }
             feat[RELATION_VOCAB.len()] = (-(now - (*ts as f32)) / WEEK_MS).exp();
             feat[RELATION_VOCAB.len() + 1] = edge.weight.unwrap_or(1.0);
-            matvec(&self.we, self.head_dim, self.edge_feat_dim, &feat, &mut e_proj);
+            matvec(&we_snap, self.head_dim, self.edge_feat_dim, &feat, &mut e_proj);
             for h in 0..self.heads {
                 let off = h * self.head_dim;
                 for d in 0..self.head_dim { k_mat[i * self.proj_dim + off + d] += e_proj[d]; }
@@ -217,43 +205,4 @@ impl Attention {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::tempdir;
-
-    fn rand_emb(seed: u32, dim: usize) -> Vec<f32> {
-        let mut rng = mulberry32(seed);
-        (0..dim).map(|_| rng() * 2.0 - 1.0).collect()
-    }
-
-    #[tokio::test]
-    async fn attend_basic() {
-        let dir = tempdir().unwrap();
-        let p = dir.path().join("a.db");
-        let store = Arc::new(Store::open(p.to_str().unwrap()).await.unwrap());
-        let att = Attention::new(store);
-        let nodes: Vec<SubgraphNode> = (0..16).map(|i| SubgraphNode {
-            id: format!("n{}", i), embedding: Some(rand_emb(100 + i as u32, 768)), created_at: Some(0),
-        }).collect();
-        let edges: Vec<SubgraphEdge> = (0..16).map(|i| SubgraphEdge {
-            src: "q".into(), dst: format!("n{}", i), relation: Some("entity".into()),
-            weight: Some(1.0), created_at: Some(0),
-        }).collect();
-        let sg = Subgraph { nodes, edges };
-        let q = rand_emb(7, 768);
-        let t0 = std::time::Instant::now();
-        let ctx = att.attend(&q, &sg).unwrap();
-        let elapsed = t0.elapsed();
-        assert_eq!(ctx.vector.len(), 768);
-        assert!(ctx.vector.iter().all(|v| v.is_finite()));
-        assert_eq!(ctx.weights.len(), 8);
-        for w in &ctx.weights {
-            assert_eq!(w.len(), 16);
-            let sum: f32 = w.iter().sum();
-            assert!((sum - 1.0).abs() < 1e-4, "head sum {}", sum);
-            assert!(w.iter().all(|v| v.is_finite()));
-        }
-        println!("attend 16-node elapsed={:?}", elapsed);
-    }
-}
+#[cfg(test)] #[path = "attention_tests.rs"] mod tests;

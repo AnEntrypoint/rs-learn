@@ -81,7 +81,14 @@ impl Orchestrator {
         }
         let background = BackgroundLoop::new(store.clone(), router.clone(), Some(acp.clone()), reasoning.clone(), Some(instant.clone()));
         let deep = Arc::new(Mutex::new(DeepLoop::new(store.clone())));
-        { let mut dl = deep.lock().await; let _ = dl.load_fisher("adapter").await; }
+        {
+            let mut dl = deep.lock().await;
+            let _ = dl.load_fisher("adapter").await;
+            if let Some((f, s, lam)) = dl.ewc_state("adapter") {
+                let mut il = instant.lock().await;
+                il.set_ewc_state(f, s, lam);
+            }
+        }
         let bg_task = match std::env::var("RS_LEARN_BG_INTERVAL_SEC").ok().and_then(|s| s.parse::<u64>().ok()).filter(|&n| n > 0) {
             Some(secs) => Some(tokio::spawn(background.clone().schedule(Duration::from_secs(secs)))),
             None => None,

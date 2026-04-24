@@ -1,5 +1,22 @@
 use super::*;
 
+pub(crate) fn weighted_pick(buf: &std::collections::VecDeque<(Vec<f32>, usize, f32)>, seed: &mut u32) -> usize {
+    let n = buf.len();
+    *seed = seed.wrapping_mul(2654435761).wrapping_add(1);
+    let r = (*seed as f32) / (u32::MAX as f32 + 1.0);
+    let total: f32 = buf.iter().map(|(_, _, s)| s.abs()).sum();
+    if !(total > 0.0) {
+        return ((*seed as usize) % n).min(n - 1);
+    }
+    let target = r * total;
+    let mut acc = 0f32;
+    for (i, (_, _, s)) in buf.iter().enumerate() {
+        acc += s.abs();
+        if target < acc { return i; }
+    }
+    n - 1
+}
+
 impl InstantLoop {
     pub(super) fn hebbian_update(&mut self, embedding: &[f32], t_idx: usize, quality: f32) {
         if t_idx >= self.n_targets { return; }
@@ -15,6 +32,20 @@ impl InstantLoop {
             let off = r * IN;
             let pr = crate::simd::dot(&self.adapter_a[off..off + IN], embedding);
             self.adapter_b[r * self.n_targets + t_idx] += scale * pr;
+        }
+        if let Some(ewc) = self.ewc.as_ref() {
+            let a_len = self.adapter_a.len();
+            let lam = ewc.lambda;
+            let lr = self.lr;
+            for i in 0..a_len {
+                let d = self.adapter_a[i] - ewc.snapshot[i];
+                self.adapter_a[i] -= lr * lam * ewc.fisher[i] * d;
+            }
+            for j in 0..self.adapter_b.len() {
+                let k = a_len + j;
+                let d = self.adapter_b[j] - ewc.snapshot[k];
+                self.adapter_b[j] -= lr * lam * ewc.fisher[k] * d;
+            }
         }
         self.lr = (self.lr * DECAY).max(self.lr_min);
         let norm = self.adapter_norm();
@@ -46,7 +77,7 @@ impl InstantLoop {
         implicit_quality: Option<f64>,
         latency_ms: u64,
     ) -> Result<RequestId> {
-        self.record_trajectory_full(session_id, embedding, route_model, response, query_text, implicit_quality, latency_ms, Vec::new()).await
+        self.record_trajectory_full(session_id, embedding, route_model, response, query_text, implicit_quality, latency_ms, Vec::new(), None).await
     }
 
     pub async fn record_trajectory_full(
@@ -59,6 +90,7 @@ impl InstantLoop {
         implicit_quality: Option<f64>,
         latency_ms: u64,
         retrieved_strategies: Vec<String>,
+        dominant_relation: Option<String>,
     ) -> Result<RequestId> {
         if embedding.len() != IN { return Err(anyhow!("embedding must be {IN}-d")); }
         self.gc_pending();
@@ -87,6 +119,7 @@ impl InstantLoop {
             query_text,
             created_at: Instant::now(), created_ms,
             retrieved_strategies,
+            dominant_relation,
         });
         self.pending_count.store(self.pending.len() as u64, Ordering::Relaxed);
         Ok(request_id)

@@ -100,6 +100,13 @@ impl DeepLoop {
         Ok(false)
     }
 
+    pub fn ewc_state(&self, param_id: &str) -> Option<(Vec<f32>, Vec<f32>, f32)> {
+        let f = self.fisher.get(param_id)?.clone();
+        let s = self.params_snapshot.get(param_id)?.clone();
+        if f.len() != s.len() || f.is_empty() { return None; }
+        Some((f, s, self.lambda))
+    }
+
     pub fn ewc_penalty(&self, param_id: &str, params: &[f32]) -> f32 {
         let Some(f) = self.fisher.get(param_id) else { return 0.0 };
         let Some(snap) = self.params_snapshot.get(param_id) else { return 0.0 };
