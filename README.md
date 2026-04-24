@@ -113,6 +113,9 @@ Live E2E mode requires `RS_LEARN_ACP_LIVE=1`; otherwise the orchestrator uses th
 | `RS_LEARN_EDGE_TYPES_JSON` | — | override default edge-type schema JSON for LLM extraction |
 | `RS_LEARN_SAGA_SUMMARY_EVERY` | `10` | auto-summarize saga every N episodes (0 = never) |
 | `RS_LEARN_BG_INTERVAL_SEC` | `0` (off) | if >0, `Orchestrator::new_default` spawns the background learning loop on this interval |
+| `RS_LEARN_TRAJ_KEEP` | `10000` | max trajectories retained by background pruning (keeps quality>0.7 + latest N) |
+| `RS_LEARN_REASONING_TTL_DAYS` | `7` | evict reasoning bank entries older than N days with success_rate < 0.3 |
+| `RS_LEARN_ROUTER_THRESHOLD` | `200` | trajectory count below which router stays on epsilon-greedy; exposed in `/debug/router` |
 | `RS_LEARN_EWC_LAMBDA` | `2000` | EWC++ regularization strength (100–15000) — only consulted when `DeepLoop` is wired explicitly |
 | `RS_LEARN_LLM_TIMEOUT_MS` | `120000` | per-turn timeout |
 | `RS_LEARN_DEBUG_ACP` | — | log ACP stderr |

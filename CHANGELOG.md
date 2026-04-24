@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+### Added
+- **Housekeeping suite** — BackgroundLoop now runs after each tick: trajectory pruning (keeps quality>0.7 + latest N, `RS_LEARN_TRAJ_KEEP` default 10000), router weight pruning (keeps 5 latest versions), stale reasoning eviction (`RS_LEARN_REASONING_TTL_DAYS` default 7, min_success_rate 0.3, cold-start guard <20 rows), noise pattern eviction (count<3 AND avg_quality<0.2). Prevents unbounded DB growth and keeps pattern/reasoning banks relevant.
+- **Session quality EMA** — `Orchestrator::feedback` now smooths raw quality signal with per-session EMA (alpha=0.3, init 0.5) before training; prevents single high/low outlier from dominating adapter update.
+- **FTS desync repair** — `Store::open` now calls `repair_fts_sync` which rebuilds any FTS shadow table whose row count diverges from the base table. Prevents stale full-text search results after crashes or partial writes.
+- **Router threshold env override** — `RS_LEARN_ROUTER_THRESHOLD` (1–10000, default 200) overrides the trajectory count below which router stays on `epsilon_greedy`. Exposed in `/debug/router` alongside `traj_count`.
+- **Attention feedthrough** — `ctx.vector` from `Attention::attend` replaces raw embedding for trajectory recording when attention weights are non-empty; router training now uses attention-weighted embedding signal.
+
 ### Changed
 - **InstantLoop dead-band removed** — replaced binary dead-band (`quality > 0.7` positive, `quality < 0.3` negative, else skip) with centered gradient `scale = (quality - 0.5) * 2.0`, covering full quality band. Only skips when `|quality - 0.5| < 1e-4`. Test `instant_mid_quality_trains_now` asserts mid-quality (0.55) now grows adapter.
 
