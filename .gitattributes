@@ -1,0 +1,7 @@
+* text=auto eol=lf
+*.yml text eol=lf
+npm/bin/* text eol=lf
+npm/*.js text eol=lf
+*.rs text eol=lf
+Cargo.toml text eol=lf
+Cargo.lock text eol=lf

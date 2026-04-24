@@ -10,9 +10,13 @@ permissions:
   contents: write
 
 jobs:
-  publish:
+  version:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    outputs:
+      next: ${{ steps.ver.outputs.next }}
+      current: ${{ steps.ver.outputs.current }}
+      tag_created: ${{ steps.tag.outputs.created }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,29 +39,33 @@ jobs:
           set -euo pipefail
           current=$(awk -F '"' '/^version *= *"/{print $2; exit}' Cargo.toml)
           echo "current=$current"
-          crates_ver=$(curl -s https://crates.io/api/v1/crates/rs-learn | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("crate",{}).get("max_version","") if "crate" in d else "")' || true)
+          crates_ver=$(curl -s https://crates.io/api/v1/crates/rs-learn | jq -r '.crate.max_version // ""' 2>/dev/null || true)
           echo "crates_ver=$crates_ver"
           tag_ver=$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -1)
           echo "tag_ver=$tag_ver"
+          npm_ver=$(curl -s https://registry.npmjs.org/rs-learn | jq -r '."dist-tags".latest // ""' 2>/dev/null || true)
+          echo "npm_ver=$npm_ver"
           published="$tag_ver"
-          if [[ -n "$crates_ver" ]]; then
-            if [[ -z "$published" ]] || printf '%s\n%s\n' "$published" "$crates_ver" | sort -V -C; then
-              published="$crates_ver"
+          for v in "$crates_ver" "$npm_ver"; do
+            if [[ -n "$v" ]]; then
+              if [[ -z "$published" ]] || printf '%s\n%s\n' "$published" "$v" | sort -V -C; then
+                published="$v"
+              fi
             fi
-          fi
+          done
           echo "published=$published"
           next="$current"
-          if [[ -n "$published" ]]; then
-            highest=$(printf '%s\n%s\n' "$published" "$current" | sort -V | tail -1)
-            if [[ "$current" != "$highest" || "$current" == "$published" ]]; then
-              IFS=. read -r major minor patch <<<"$highest"
-              next="${major}.${minor}.$((patch+1))"
-            fi
+          tag_current_exists=false
+          git rev-parse "v$current" >/dev/null 2>&1 && tag_current_exists=true
+          # Bump only if tag v$current exists AND published is strictly less than our planned next.
+          # Caught-up state (tag exists, published == current) → no-op; tag_created=false skips downstream jobs.
+          if $tag_current_exists && [[ -n "$published" ]] && [[ "$current" != "$published" ]] && printf '%s\n%s\n' "$current" "$published" | sort -V -C; then
+            IFS=. read -r major minor patch <<<"$published"
+            next="${major}.${minor}.$((patch+1))"
           fi
           echo "next=$next"
           echo "current=$current" >> "$GITHUB_OUTPUT"
           echo "next=$next" >> "$GITHUB_OUTPUT"
-          echo "published=$published" >> "$GITHUB_OUTPUT"
 
       - name: Bump Cargo.toml if needed
         if: steps.ver.outputs.next != steps.ver.outputs.current
@@ -70,49 +78,115 @@ jobs:
           git commit -m "chore: bump version to ${{ steps.ver.outputs.next }}"
           git push origin main
 
-      - name: Check if tag exists
+      - name: Tag and release
         id: tag
-        shell: bash
-        run: |
-          if git rev-parse "v${{ steps.ver.outputs.next }}" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Tag and push
-        if: steps.tag.outputs.exists == 'false'
-        shell: bash
-        run: |
-          git tag -a "v${{ steps.ver.outputs.next }}" -m "v${{ steps.ver.outputs.next }}"
-          git push origin "v${{ steps.ver.outputs.next }}"
-
-      - name: Create GitHub release
-        if: steps.tag.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          gh release create "v${{ steps.ver.outputs.next }}" \
-            --title "v${{ steps.ver.outputs.next }}" \
-            --notes "Automated release for v${{ steps.ver.outputs.next }}" \
-            --target main
+          set -euo pipefail
+          tag="v${{ steps.ver.outputs.next }}"
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "tag $tag exists; skipping create"
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git tag -a "$tag" -m "$tag"
+          git push origin "$tag"
+          gh release create "$tag" --title "$tag" --notes "Automated release for $tag" --target main
+          echo "created=true" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    if: needs.version.outputs.tag_created == 'true'
+    name: ${{ matrix.os }} / ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            cross: false
+            ext: ''
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            cross: true
+            ext: ''
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            cross: false
+            ext: .exe
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            cross: true
+            ext: .exe
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            cross: false
+            ext: ''
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            cross: false
+            ext: ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.version.outputs.next }}
+
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.cross && matrix.os == 'ubuntu-latest'
+        run: cargo install cross --locked
+
+      - name: Build release
+        shell: bash
+        run: |
+          if [[ "${{ matrix.cross }}" == "true" && "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+            cross build --release --target ${{ matrix.target }} --bin rs-learn --bin rs-learn-validate
+          else
+            cargo build --release --target ${{ matrix.target }} --bin rs-learn --bin rs-learn-validate
+          fi
+
+      - name: Stage artifacts
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/rs-learn${{ matrix.ext }} dist/rs-learn-${{ matrix.target }}${{ matrix.ext }}
+          cp target/${{ matrix.target }}/release/rs-learn-validate${{ matrix.ext }} dist/rs-learn-validate-${{ matrix.target }}${{ matrix.ext }}
+
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: gh release upload "v${{ needs.version.outputs.next }}" dist/* --clobber
+
+  registries:
+    needs: [version, build]
+    if: needs.version.outputs.tag_created == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.version.outputs.next }}
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
 
       - name: Publish to crates.io
-        if: steps.tag.outputs.exists == 'false'
-        continue-on-error: true
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         shell: bash
         run: |
+          set -euo pipefail
           if [[ -z "${CARGO_REGISTRY_TOKEN:-}" ]]; then
-            echo "CARGO_REGISTRY_TOKEN not set; skipping crates.io publish"
-            exit 0
-          fi
-          if grep -qE '^\s*[a-zA-Z0-9_-]+\s*=\s*\{[^}]*\bgit\s*=' Cargo.toml; then
-            echo "Cargo.toml has git dependency; cargo publish will reject. Skipping."
-            grep -E '^\s*[a-zA-Z0-9_-]+\s*=\s*\{[^}]*\bgit\s*=' Cargo.toml
-            exit 0
+            echo "CARGO_REGISTRY_TOKEN not set"
+            exit 1
           fi
           cargo publish --token "${CARGO_REGISTRY_TOKEN}"
 
@@ -123,16 +197,15 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - name: Publish to npm
-        if: steps.tag.outputs.exists == 'false'
-        continue-on-error: true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         shell: bash
         run: |
+          set -euo pipefail
           if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
-            echo "NPM_TOKEN not set; skipping npm publish"
-            exit 0
+            echo "NPM_TOKEN not set"
+            exit 1
           fi
           cd npm
-          sed -i 's/"version": "[^"]*"/"version": "${{ steps.ver.outputs.next }}"/' package.json
+          sed -i 's/"version": "[^"]*"/"version": "${{ needs.version.outputs.next }}"/' package.json
           npm publish --access public

@@ -1,0 +1,17 @@
+#!/usr/bin/env node
+'use strict';
+const { spawn } = require('child_process');
+const { ensureBinary, binaryPaths } = require('../install');
+
+(async () => {
+  try {
+    await ensureBinary({ verbose: false });
+  } catch (e) {
+    console.error(`rs-learn-validate: failed to obtain binary: ${e.message}`);
+    process.exit(1);
+  }
+  const { validatePath } = binaryPaths();
+  const child = spawn(validatePath, process.argv.slice(2), { stdio: 'inherit' });
+  child.on('exit', code => process.exit(code ?? 1));
+  child.on('error', err => { console.error(`rs-learn-validate: spawn failed: ${err.message}`); process.exit(1); });
+})();

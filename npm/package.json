@@ -1,13 +1,20 @@
 {
   "name": "rs-learn",
-  "version": "0.1.18",
+  "version": "0.1.32",
   "description": "Continual-learning orchestrator — downloads platform binary from GitHub Releases",
   "bin": {
-    "rs-learn": "bin/rs-learn"
+    "rs-learn": "bin/rs-learn",
+    "rs-learn-validate": "bin/rs-learn-validate"
   },
   "scripts": {
     "postinstall": "node postinstall.js"
   },
+  "files": [
+    "bin/",
+    "install.js",
+    "postinstall.js",
+    "README.md"
+  ],
   "keywords": [
     "acp",
     "agent",
@@ -18,7 +25,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/AnEntrypoint/rs-learn"
+    "url": "git+https://github.com/AnEntrypoint/rs-learn.git"
   },
   "engines": {
     "node": ">=16"
