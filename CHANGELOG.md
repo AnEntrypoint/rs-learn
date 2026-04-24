@@ -1,6 +1,14 @@
 ## [Unreleased]
 
 ### Added
+- **Prioritized replay sampling** — `InstantLoop::feedback` now picks replay entries weighted by `|scale|` (cumulative weighted pick) so high-impact transitions replay more often; uniform fallback when all scales zero. Test `prioritized_replay_favors_high_impact` asserts bias.
+- **EWC consolidation on boundary fires** — before `reset_adapter`, orchestrator calls `deep.consolidate("adapter", &adapter_flat, &pseudo_grads)` using `emb * quality` as Fisher proxy, protecting high-quality adapter weights across resets.
+
+### Changed
+- **BackgroundLoop dead-band removed** — previously skipped trajectories with `0.3 < quality < 0.7`; now trains on full quality band. Densifies training data ~2-3x. Test `run_once_trains_middle_quality` covers mid-band entries.
+- **Router continuous gradient** — replaced binary positive/negative dead-band with centered gradient `strength = |quality - 0.5| * 2`, covering the full range. No more silent no-op for mid-quality transitions.
+
+### Added
 - **Instant adapter LR floor** — `RS_LEARN_LR_MIN` (default 1e-3, clamped to `(0, LR0]`) prevents hebbian learning rate from decaying toward zero; `hebbian_update` now does `lr = max(lr * DECAY, lr_min)`. Test `lr_respects_floor` asserts invariant after 2000 updates.
 - **Router epsilon-greedy exploration** — `RS_LEARN_ROUTER_EPSILON=0.0..0.5` (default 0.0) samples non-argmax targets to break greedy lock-in. `RouteSnapshot.exploration` exposes per-query firing. Seeded via `RS_LEARN_ROUTER_SEED` for test determinism.
 - **Attention feedthrough** — orchestrator now averages per-head attention weights across the retrieved subgraph and appends a "Top-attended context" block (top-3 node ids + weights) to the ACP system prompt. Previously `attend()` output was discarded — pure silent no-op.
