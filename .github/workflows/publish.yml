@@ -188,6 +188,12 @@ jobs:
             echo "CARGO_REGISTRY_TOKEN not set"
             exit 1
           fi
+          ver="${{ needs.version.outputs.next }}"
+          existing=$(curl -s "https://crates.io/api/v1/crates/rs-learn" | jq -r '.versions[]?.num' 2>/dev/null || true)
+          if echo "$existing" | grep -qx "$ver"; then
+            echo "rs-learn $ver already on crates.io; skipping publish"
+            exit 0
+          fi
           cargo publish --token "${CARGO_REGISTRY_TOKEN}"
 
       - name: Setup Node.js
@@ -207,5 +213,10 @@ jobs:
             exit 1
           fi
           cd npm
-          sed -i 's/"version": "[^"]*"/"version": "${{ needs.version.outputs.next }}"/' package.json
+          ver="${{ needs.version.outputs.next }}"
+          if npm view "rs-learn@$ver" version >/dev/null 2>&1; then
+            echo "rs-learn@$ver already on npm; skipping publish"
+            exit 0
+          fi
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$ver\"/" package.json
           npm publish --access public
