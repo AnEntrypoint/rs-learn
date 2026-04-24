@@ -24,6 +24,7 @@ impl EmbeddingCache {
         let misses = Arc::new(AtomicU64::new(0));
         let s = Arc::new(Self { inner, embedder, hits: hits.clone(), misses: misses.clone() });
         let h2 = hits.clone(); let m2 = misses.clone();
+        let inner2 = s.inner.clone();
         observability::register("embed_cache", move || {
             let h = h2.load(Ordering::Relaxed);
             let m = m2.load(Ordering::Relaxed);
@@ -32,6 +33,7 @@ impl EmbeddingCache {
                 "hits": h,
                 "misses": m,
                 "hit_rate": if total > 0 { h as f64 / total as f64 } else { 0.0 },
+                "size": inner2.entry_count(),
             })
         });
         s

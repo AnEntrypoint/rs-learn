@@ -43,10 +43,22 @@ impl DeepLoop {
         let lam = lambda;
         observability::register("deep", move || {
             let ring = ring_shared.lock().map(|r| r.clone()).unwrap_or_default();
+            let n = ring.len();
+            let (mean, stddev) = if n == 0 {
+                (0.0f32, 0.0f32)
+            } else {
+                let m = ring.iter().sum::<f32>() / n as f32;
+                let v = ring.iter().map(|x| (x - m).powi(2)).sum::<f32>() / n as f32;
+                (m, v.sqrt())
+            };
             json!({
+                "boundary_fires": boundaries_detected.load(Ordering::Relaxed),
+                "window_mean": mean,
+                "window_stddev": stddev,
+                "threshold": BOUNDARY_Z,
+                "samples_in_window": n,
                 "lambda": lam,
                 "loss_ring": ring,
-                "boundaries_detected": boundaries_detected.load(Ordering::Relaxed),
             })
         });
         this
@@ -150,6 +162,27 @@ mod tests {
         assert!(loaded[0] > 0.0 && loaded[1] > loaded[0] && loaded[2] > loaded[1]);
         let pen = dl.ewc_penalty("layer0", &vec![0.2f32, 0.2, 0.3]);
         assert!(pen > 0.0);
+    }
+
+    #[tokio::test]
+    async fn observability_reports_boundary_fires() {
+        let _g = ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner());
+        unsafe { std::env::remove_var("RS_LEARN_EWC_LAMBDA"); }
+        let store = tmp_store().await;
+        let mut dl = DeepLoop::new(store);
+        let before = observability::dump();
+        let b0 = before.get("deep").and_then(|v| v.get("boundary_fires")).and_then(|v| v.as_u64()).unwrap_or(0);
+        for _ in 0..5 { let _ = dl.record_loss(0.1).await.unwrap(); }
+        let _ = dl.record_loss(10.0).await.unwrap();
+        let after = observability::dump();
+        let deep = after.get("deep").expect("deep observability registered");
+        let b1 = deep.get("boundary_fires").and_then(|v| v.as_u64()).unwrap();
+        assert!(b1 > b0, "boundary_fires must increment: {} -> {}", b0, b1);
+        assert!(deep.get("window_mean").is_some());
+        assert!(deep.get("window_stddev").is_some());
+        assert!(deep.get("threshold").is_some());
+        let n = deep.get("samples_in_window").and_then(|v| v.as_u64()).unwrap();
+        assert!(n > 0);
     }
 
     #[tokio::test]

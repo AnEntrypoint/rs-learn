@@ -22,6 +22,7 @@ pub struct Route {
     pub top_p: f32,
     pub confidence: f32,
     pub algo: &'static str,
+    pub exploration: bool,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -177,15 +178,37 @@ impl Router {
         let t0 = std::time::Instant::now();
         let out = if !self.trained {
             Route { model: self.targets[0].clone(), context_bucket: bucket_for_tokens(ctx.estimated_tokens),
-                    temperature: 0.7, top_p: 0.9, confidence: 0.5, algo: "rule" }
+                    temperature: 0.7, top_p: 0.9, confidence: 0.5, algo: "rule", exploration: false }
         } else {
             let f = forward(&self.w, &self.heads, emb, self.targets.len());
             let mut ml = f.ml.clone();
             adapter(emb, &mut ml);
-            let (idx, p) = softmax_argmax(&ml);
+            let (argmax_idx, p) = softmax_argmax(&ml);
             let (cb, _) = softmax_argmax(&f.cl);
+            let nt = self.targets.len();
+            let eps = std::env::var("RS_LEARN_ROUTER_EPSILON").ok()
+                .and_then(|v| v.parse::<f32>().ok())
+                .map(|v| v.clamp(0.0, 1.0))
+                .unwrap_or(0.0);
+            let (idx, exploration) = if nt > 1 && eps > 0.0 {
+                let seed = std::env::var("RS_LEARN_ROUTER_SEED").ok()
+                    .and_then(|v| v.parse::<u32>().ok())
+                    .unwrap_or_else(|| {
+                        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_nanos() as u32).unwrap_or(0)
+                            ^ self.inference_count.load(Ordering::Relaxed) as u32
+                    });
+                let mut rng = mulberry32(seed ^ SEED);
+                if rng() < eps {
+                    let mut alt = (rng() * (nt as f32 - 1.0)) as usize;
+                    if alt >= argmax_idx { alt += 1; }
+                    if alt >= nt { alt = nt - 1; }
+                    (alt, true)
+                } else { (argmax_idx, false) }
+            } else { (argmax_idx, false) };
             Route { model: self.targets[idx].clone(), context_bucket: cb as u8,
-                    temperature: f.tp, top_p: f.top_p, confidence: f.conf * p, algo: "fastgrnn" }
+                    temperature: f.tp, top_p: f.top_p, confidence: f.conf * p, algo: "fastgrnn",
+                    exploration }
         };
         self.inference_count.fetch_add(1, Ordering::Relaxed);
         self.total_us.fetch_add(t0.elapsed().as_micros() as u64, Ordering::Relaxed);
@@ -349,5 +372,47 @@ mod tests {
         assert!(after.ml[1] - before.ml[1] > after.ml[2] - before.ml[2]);
         let max_abs = r.heads.model.iter().map(|x| x.abs()).fold(0f32, f32::max);
         assert!(max_abs < 10.0, "weights should stay bounded under softmax training, got max {max_abs}");
+    }
+
+    #[tokio::test]
+    async fn epsilon_one_forces_non_argmax() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        drop(tmp);
+        let store = Arc::new(Store::open(&path).await.unwrap());
+        let targets = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let mut r = Router::new(store, targets.clone());
+        r.trained = true;
+        let emb: Vec<f32> = (0..IN).map(|i| ((i as f32) * 0.01).sin()).collect();
+        std::env::set_var("RS_LEARN_ROUTER_EPSILON", "0.0");
+        std::env::remove_var("RS_LEARN_ROUTER_SEED");
+        let baseline = r.route(&emb, &RouteCtx::default());
+        assert!(!baseline.exploration);
+        std::env::set_var("RS_LEARN_ROUTER_EPSILON", "1.0");
+        std::env::set_var("RS_LEARN_ROUTER_SEED", "12345");
+        let explored = r.route(&emb, &RouteCtx::default());
+        std::env::remove_var("RS_LEARN_ROUTER_EPSILON");
+        std::env::remove_var("RS_LEARN_ROUTER_SEED");
+        assert!(explored.exploration, "epsilon=1.0 must always fire exploration");
+        assert_ne!(explored.model, baseline.model, "exploration must pick non-argmax");
+    }
+
+    #[tokio::test]
+    async fn epsilon_single_target_no_op() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        drop(tmp);
+        let store = Arc::new(Store::open(&path).await.unwrap());
+        let targets = vec!["only".to_string()];
+        let mut r = Router::new(store, targets);
+        r.trained = true;
+        let emb: Vec<f32> = (0..IN).map(|i| ((i as f32) * 0.01).sin()).collect();
+        std::env::set_var("RS_LEARN_ROUTER_EPSILON", "0.5");
+        std::env::set_var("RS_LEARN_ROUTER_SEED", "1");
+        let out = r.route(&emb, &RouteCtx::default());
+        std::env::remove_var("RS_LEARN_ROUTER_EPSILON");
+        std::env::remove_var("RS_LEARN_ROUTER_SEED");
+        assert!(!out.exploration);
+        assert_eq!(out.model, "only");
     }
 }

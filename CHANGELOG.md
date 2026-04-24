@@ -1,9 +1,16 @@
-## [Unrele- **Remove BC wrapper** — `InstantLoop::record_trajectory_full` was a rename shim for `record_trajectory`. Deleted the thin wrapper; single entry point `record_trajectory(session, embedding, model, response, query, implicit_quality, latency_ms)`. All 4 call sites updated.
-- **CLAUDE.md corrected** — "dead modules" section was stale: DeepLoop is wired into `Orchestrator::feedback`, FederatedCoordinator already deleted. Replaced with current loop-wiring truth.
-
-ased]
+## [Unreleased]
 
 ### Added
+- **Router epsilon-greedy exploration** — `RS_LEARN_ROUTER_EPSILON=0.0..0.5` (default 0.0) samples non-argmax targets to break greedy lock-in. `RouteSnapshot.exploration` exposes per-query firing. Seeded via `RS_LEARN_ROUTER_SEED` for test determinism.
+- **Attention feedthrough** — orchestrator now averages per-head attention weights across the retrieved subgraph and appends a "Top-attended context" block (top-3 node ids + weights) to the ACP system prompt. Previously `attend()` output was discarded — pure silent no-op.
+- **Embed-cache size telemetry** — `/observability` `embed_cache` module now reports `size` (moka entry count) alongside hits/misses/hit_rate.
+- **DeepLoop full window telemetry** — `/observability` `deep` now reports `boundary_fires`, `window_mean`, `window_stddev`, `threshold` (BOUNDARY_Z=2.5), `samples_in_window` — previously only `loss_ring` + `boundaries_detected` visible.
+
+### Changed
+- **Remove BC wrapper** — `InstantLoop::record_trajectory_full` was a rename shim for `record_trajectory`. Deleted the thin wrapper; single entry point `record_trajectory(session, embedding, model, response, query, implicit_quality, latency_ms)`. All 4 call sites updated.
+- **CLAUDE.md corrected** — "dead modules" section was stale: DeepLoop is wired into `Orchestrator::feedback`, FederatedCoordinator already deleted. Replaced with current loop-wiring truth.
+
+### Added (prior)
 - **Router multi-epoch shuffled training** — `Router::train` now runs 2 epochs (env `RS_LEARN_ROUTER_EPOCHS=1..8`) with per-epoch Fisher-Yates shuffle, extracting more signal per background tick without growing batch size.
 - **InstantLoop replay buffer (64-slot ring)** — each positive/negative feedback appends `(embedding, target_idx, scale)` and replays one random prior sample at half scale to fight catastrophic forgetting across regime shifts.
 - **Feedback-expiry observability** — `feedback_expired` counter in `/observability` tracks pending trajectories GC'd past `FEEDBACK_WINDOW` (60s); previously silent signal loss.

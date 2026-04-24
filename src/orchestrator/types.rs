@@ -41,6 +41,8 @@ pub struct RouteSnapshot {
     pub top_p: f32,
     pub confidence: f32,
     pub algo: String,
+    #[serde(default)]
+    pub exploration: bool,
 }
 
 impl From<Route> for RouteSnapshot {
@@ -52,6 +54,7 @@ impl From<Route> for RouteSnapshot {
             top_p: r.top_p,
             confidence: r.confidence,
             algo: r.algo.to_string(),
+            exploration: r.exploration,
         }
     }
 }

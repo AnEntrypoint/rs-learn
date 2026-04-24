@@ -3,7 +3,7 @@ mod types;
 pub use types::{QueryOpts, QueryResult, RouteSnapshot, Session};
 
 use crate::backend::{self, AgentBackend};
-use crate::attention::Attention;
+use crate::attention::{Attention, Context as AttnContext, Subgraph};
 use crate::cache::EmbeddingCache;
 use crate::embeddings::Embedder;
 use crate::learn::background::BackgroundLoop;
@@ -135,7 +135,10 @@ impl Orchestrator {
         stages.insert("memory".into(), t_m.elapsed().as_millis() as u64);
 
         let t_a = Instant::now();
-        let _ = self.attention.attend(&emb, &subgraph).ok();
+        let attn_text = match self.attention.attend(&emb, &subgraph) {
+            Ok(ctx) => attention_hint(&ctx, &subgraph),
+            Err(e) => { eprintln!("attention error (non-fatal): {e}"); String::new() }
+        };
         stages.insert("attention".into(), t_a.elapsed().as_millis() as u64);
 
         let t_r = Instant::now();
@@ -178,8 +181,8 @@ impl Orchestrator {
         stages.insert("hints".into(), t_h.elapsed().as_millis() as u64);
 
         let t_acp = Instant::now();
-        let sys = format!("You are rs-learn. Task type: {}.{}{}",
-            opts.task_type.as_deref().unwrap_or("default"), hint_text, code_text);
+        let sys = format!("You are rs-learn. Task type: {}.{}{}{}",
+            opts.task_type.as_deref().unwrap_or("default"), hint_text, code_text, attn_text);
         let response = self.acp.generate(&sys, text, 120_000).await.map_err(|e| anyhow!("acp: {e}"))?;
         stages.insert("acp".into(), t_acp.elapsed().as_millis() as u64);
 
@@ -220,6 +223,26 @@ impl Orchestrator {
     }
 }
 
+fn attention_hint(ctx: &AttnContext, subgraph: &Subgraph) -> String {
+    let valid: Vec<&str> = subgraph.nodes.iter()
+        .filter(|n| n.embedding.as_ref().map(|e| e.len() == 768).unwrap_or(false))
+        .map(|n| n.id.as_str()).collect();
+    if valid.is_empty() || ctx.weights.is_empty() { return String::new(); }
+    let n = valid.len();
+    let mut mean = vec![0.0f32; n];
+    for head in &ctx.weights {
+        if head.len() != n { return String::new(); }
+        for (i, w) in head.iter().enumerate() { mean[i] += *w; }
+    }
+    let h = ctx.weights.len() as f32;
+    for v in mean.iter_mut() { *v /= h; }
+    let mut idx: Vec<usize> = (0..n).collect();
+    idx.sort_by(|a, b| mean[*b].partial_cmp(&mean[*a]).unwrap_or(std::cmp::Ordering::Equal));
+    let top: Vec<String> = idx.iter().take(3)
+        .map(|i| format!("- {} (attn={:.3})", valid[*i], mean[*i])).collect();
+    format!("\n\nTop-attended context:\n{}", top.join("\n"))
+}
+
 fn implicit_quality_from(latency_ms: u64, grounding: f32, confidence: f32) -> f64 {
     let latency_score = (5000.0f64 - (latency_ms as f64).min(5000.0)) / 5000.0;
     let ground = grounding.clamp(0.0, 1.0) as f64;
@@ -240,7 +263,38 @@ impl Drop for Orchestrator {
 
 #[cfg(test)]
 mod tests {
-    use super::implicit_quality_from;
+    use super::{attention_hint, implicit_quality_from};
+    use crate::attention::{Context as AttnContext, Subgraph, SubgraphNode};
+
+    fn node(id: &str) -> SubgraphNode {
+        SubgraphNode { id: id.into(), embedding: Some(vec![0.0; 768]), created_at: Some(0) }
+    }
+
+    #[test]
+    fn attention_hint_empty_subgraph_no_panic() {
+        let ctx = AttnContext { vector: vec![0.0; 768], weights: vec![] };
+        let sg = Subgraph::default();
+        assert_eq!(attention_hint(&ctx, &sg), "");
+    }
+
+    #[test]
+    fn attention_hint_changes_prompt_vs_baseline() {
+        let sg = Subgraph { nodes: vec![node("alpha"), node("beta"), node("gamma")], edges: vec![] };
+        let ctx = AttnContext {
+            vector: vec![0.0; 768],
+            weights: vec![vec![0.1, 0.7, 0.2], vec![0.2, 0.6, 0.2]],
+        };
+        let baseline = AttnContext { vector: vec![0.0; 768], weights: vec![] };
+        let with_attn = attention_hint(&ctx, &sg);
+        let without = attention_hint(&baseline, &sg);
+        assert_ne!(with_attn, without);
+        assert!(with_attn.contains("Top-attended context:"));
+        assert!(with_attn.contains("beta"));
+        let beta_pos = with_attn.find("beta").unwrap();
+        let alpha_pos = with_attn.find("alpha").unwrap();
+        assert!(beta_pos < alpha_pos, "beta (highest weight) must rank first");
+    }
+
     #[test]
     fn implicit_quality_rewards_fast_grounded_responses() {
         let fast_grounded = implicit_quality_from(200, 0.9, 0.9);
