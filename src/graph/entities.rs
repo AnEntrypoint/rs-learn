@@ -2,6 +2,7 @@ use crate::embeddings::Embedder;
 use crate::store::types::NodeRow;
 use crate::store::Store;
 use anyhow::Result;
+use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -103,6 +104,74 @@ impl EntityOps {
     }
 
     pub async fn dedup_entities(
+        &self,
+        candidates: Vec<ExtractedEntity>,
+        episode_content: &str,
+        previous_episodes: &Value,
+        group_id: Option<&str>,
+    ) -> Result<Vec<Entity>> {
+        let futs = candidates.into_iter().map(|cand| {
+            let store = self.store.clone();
+            let embedder = self.embedder.clone();
+            let llm = self.llm.clone();
+            let episode_content = episode_content.to_string();
+            let previous_episodes = previous_episodes.clone();
+            let group_id = group_id.map(String::from);
+            async move {
+                let emb = embedder.embed(&cand.name).unwrap_or_default();
+                let existing = if emb.is_empty() {
+                    vec![]
+                } else {
+                    store.vector_top_k("nodes", &emb, NODE_DEDUP_CANDIDATE_LIMIT, None).await.unwrap_or_default()
+                };
+                if let Some(exact) = exact_name_match(&cand.name, &existing) {
+                    return Entity {
+                        id: exact,
+                        name: cand.name,
+                        entity_type: None,
+                        embedding: Some(emb),
+                        group_id,
+                    };
+                }
+                if !existing.is_empty() {
+                    let candidates_json = json!(existing
+                        .iter()
+                        .enumerate()
+                        .map(|(i, row)| json!({
+                            "candidate_id": i,
+                            "name": row.get("name").and_then(val_text),
+                            "summary": row.get("summary").and_then(val_text),
+                        }))
+                        .collect::<Vec<_>>());
+                    let prompt = dn::node(&dn::NodeCtx {
+                        previous_episodes: &previous_episodes,
+                        episode_content: &episode_content,
+                        extracted_node: &json!({"name": cand.name}),
+                        entity_type_description: &Value::Null,
+                        existing_nodes: &candidates_json,
+                    });
+                    let v = llm.call(&prompt.system, &prompt.user, |_| Ok(())).await.ok();
+                    let dup_idx = v
+                        .as_ref()
+                        .and_then(|v| v.get("duplicate_candidate_id"))
+                        .and_then(|n| n.as_i64())
+                        .unwrap_or(-1);
+                    if dup_idx >= 0 {
+                        if let Some(row) = existing.get(dup_idx as usize) {
+                            if let Some(id) = row.get("id").and_then(val_text) {
+                                return Entity { id, name: cand.name, entity_type: None, embedding: Some(emb), group_id };
+                            }
+                        }
+                    }
+                }
+                Entity { id: Uuid::new_v4().to_string(), name: cand.name, entity_type: None, embedding: Some(emb), group_id }
+            }
+        });
+        Ok(join_all(futs).await)
+    }
+
+    #[allow(dead_code)]
+    pub async fn dedup_entities_serial(
         &self,
         candidates: Vec<ExtractedEntity>,
         episode_content: &str,

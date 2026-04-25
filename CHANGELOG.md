@@ -1,3 +1,9 @@
+## [0.1.37]
+
+### Changed
+- `dedup_entities` now runs all per-entity LLM dedup calls in parallel via `join_all` — was sequential (N LLM calls × entity count per episode). Largest ingest speedup for full-extract mode.
+- `resolve_temporal` now runs all per-edge contradiction checks in parallel — first batch-fetches existing edges for all pairs, then fans out LLM calls concurrently.
+
 ## [0.1.36]
 
 ### Added

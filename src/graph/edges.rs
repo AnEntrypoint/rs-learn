@@ -2,6 +2,7 @@ use crate::embeddings::Embedder;
 use crate::store::types::EdgeRow;
 use crate::store::Store;
 use anyhow::Result;
+use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -147,6 +148,45 @@ impl EdgeOps {
     }
 
     pub async fn resolve_temporal(&self, new_edges: &[ResolvedEdge]) -> Result<Vec<String>> {
+        let pair_futs = new_edges.iter().map(|e| self.load_same_pair_edges(&e.src, &e.dst, &e.relation));
+        let existing_all: Vec<Vec<EdgeRow>> = join_all(pair_futs).await
+            .into_iter()
+            .map(|r| r.unwrap_or_default())
+            .collect();
+
+        let llm_futs = new_edges.iter().zip(existing_all.iter()).map(|(e, existing)| {
+            let llm = self.llm.clone();
+            let existing = existing.clone();
+            let fact = e.fact.clone();
+            let valid_at = e.valid_at;
+            let invalid_at = e.invalid_at;
+            async move {
+                if existing.is_empty() { return vec![]; }
+                let existing_json = json!(existing.iter().enumerate().map(|(i, ex)| json!({
+                    "idx": i,
+                    "fact": ex.fact.clone().unwrap_or_default(),
+                    "valid_at": ex.valid_at,
+                    "invalid_at": ex.invalid_at,
+                })).collect::<Vec<_>>());
+                let prompt = de::resolve_edge(&de::ResolveEdgeCtx {
+                    existing_edges: &existing_json,
+                    edge_invalidation_candidates: &json!([]),
+                    new_edge: &json!({"fact": fact, "valid_at": valid_at, "invalid_at": invalid_at}),
+                });
+                let v = llm.call(&prompt.system, &prompt.user, |_| Ok(())).await.ok();
+                let Some(v) = v else { return vec![]; };
+                v.get("contradicted_facts")
+                    .and_then(|a| a.as_array())
+                    .map(|arr| arr.iter().filter_map(|c| {
+                        c.as_i64().and_then(|i| existing.get(i as usize)).map(|ex| ex.id.clone())
+                    }).collect())
+                    .unwrap_or_default()
+            }
+        });
+        Ok(join_all(llm_futs).await.into_iter().flatten().collect())
+    }
+
+    pub async fn resolve_temporal_serial(&self, new_edges: &[ResolvedEdge]) -> Result<Vec<String>> {
         let mut expired_ids = Vec::new();
         for e in new_edges {
             let existing = self.load_same_pair_edges(&e.src, &e.dst, &e.relation).await?;

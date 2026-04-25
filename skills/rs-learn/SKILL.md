@@ -10,7 +10,7 @@ description: >
   replacing a file-based memory system (e.g. MEMORY.md + markdown files) with
   a semantic, queryable alternative. Zero install: runs via `bun x rs-learn`
   or `npx rs-learn`. Creates rs-learn.db in the project root.
-version: 0.1.36
+version: 0.1.37
 ---
 
 # rs-learn — Continual-Learning Memory
