@@ -1,6 +1,6 @@
 {
   "name": "rs-learn",
-  "version": "0.1.32",
+  "version": "0.1.35",
   "description": "Continual-learning orchestrator — downloads platform binary from GitHub Releases",
   "bin": {
     "rs-learn": "bin/rs-learn",

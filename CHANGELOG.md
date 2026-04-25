@@ -1,3 +1,11 @@
+## [0.1.35]
+
+### Added
+- `add --file <path>` — read episode content from a file (avoids shell arg-length limits that crash bun on large `$()` expansions)
+- `add --file -` — read from stdin
+- `add --chunk-size N` — chunk at paragraph/line boundaries, each chunk a separate episode tagged `"source [i/total]"`
+- `skills/rs-learn/SKILL.md` rewritten — `bunx`/`npx` primary, hermes-agent compatible, documents all flags and ACP wiring
+
 ## [Unreleased]
 
 ### Fixed

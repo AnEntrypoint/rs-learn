@@ -51,7 +51,7 @@ fn print_help(to_stderr: bool) {
         "  query <text>                run one query through the orchestrator (prints JSON)",
         "  feedback <request_id> <quality 0..1> [signal]   record quality for a prior query",
         "  debug [subsystem]           dump /debug snapshot (all or one subsystem)",
-        "  add <text> [--source S]     ingest an episode",
+        "  add <text> [--source S] [--file <path>|-] [--chunk-size N]  ingest episode(s)",
         "  search <query> [--scope S] [--limit N]",
         "  clear                       drop all graph data",
         "  build-communities           run label propagation + summarize",
@@ -113,18 +113,66 @@ async fn open_graph() -> anyhow::Result<(Arc<Store>, Arc<Embedder>, Arc<LlmJson>
 }
 
 async fn cmd_add(args: &[String]) -> anyhow::Result<()> {
-    let Some(text) = args.first() else {
-        anyhow::bail!("add requires text");
-    };
     let source = flag(args, "--source").unwrap_or_else(|| "message".into());
+    let chunk_size: usize = flag(args, "--chunk-size").and_then(|s| s.parse().ok()).unwrap_or(0);
+
+    let text = if let Some(path) = flag(args, "--file") {
+        if path == "-" {
+            use std::io::Read;
+            let mut s = String::new();
+            std::io::stdin().read_to_string(&mut s)?;
+            s
+        } else {
+            std::fs::read_to_string(&path)
+                .map_err(|e| anyhow::anyhow!("cannot read '{}': {}", path, e))?
+        }
+    } else if args.first().map(|a| !a.starts_with('-')).unwrap_or(false) {
+        args[0].clone()
+    } else {
+        anyhow::bail!("add requires text, --file <path>, or --file -  (stdin)");
+    };
+
     let (store, embedder, llm) = open_graph().await?;
     let ingestor = Ingestor::new(store, embedder, llm);
-    let r = ingestor.add_episode(text, &source, None, None).await?;
-    println!(
-        "episode={} nodes={} edges={} expired={}",
-        r.episode_id, r.node_count, r.edge_count, r.expired_edge_ids.len()
-    );
+
+    let chunks: Vec<&str> = if chunk_size > 0 {
+        chunk_text(&text, chunk_size)
+    } else {
+        vec![text.as_str()]
+    };
+
+    let total = chunks.len();
+    for (i, chunk) in chunks.iter().enumerate() {
+        let src = if total > 1 { format!("{} [{}/{}]", source, i + 1, total) } else { source.clone() };
+        let r = ingestor.add_episode(chunk, &src, None, None).await?;
+        println!(
+            "episode={} nodes={} edges={} expired={} chunk={}/{}",
+            r.episode_id, r.node_count, r.edge_count, r.expired_edge_ids.len(), i + 1, total
+        );
+    }
     Ok(())
+}
+
+fn chunk_text(text: &str, max_chars: usize) -> Vec<&str> {
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    while start < text.len() {
+        let end = (start + max_chars).min(text.len());
+        // extend to next paragraph boundary if possible
+        let slice = &text[start..end];
+        let cut = if end == text.len() {
+            slice.len()
+        } else if let Some(p) = slice.rfind("\n\n") {
+            p + 2
+        } else if let Some(p) = slice.rfind('\n') {
+            p + 1
+        } else {
+            slice.len()
+        };
+        chunks.push(&text[start..start + cut]);
+        start += cut;
+    }
+    chunks
 }
 
 async fn cmd_search(args: &[String]) -> anyhow::Result<()> {
