@@ -43,6 +43,7 @@ impl HttpState {
             .route("/group/:gid", delete(delete_group))
             .route("/episodes/:gid", get(get_episodes))
             .route("/clear", post(post_clear))
+            .route("/forget", post(post_forget))
             .route("/search", post(post_search))
             .route("/get-memory", post(post_get_memory))
             .route("/build-communities", post(post_build_communities))
@@ -200,9 +201,76 @@ async fn delete_entity_edge(State(s): State<HttpState>, Path(uuid): Path<String>
 }
 
 async fn delete_episode(State(s): State<HttpState>, Path(uuid): Path<String>) -> Result<Json<Value>, Problem> {
-    s.store.conn.execute("DELETE FROM episodes WHERE id = ?1", libsql::params![uuid])
-        .await.map_err(|e| ise(e.to_string()))?;
-    Ok(Json(json!({ "status": "ok" })))
+    // Soft-delete: mark invalid_at = now() so the audit trail and as_of replay still work.
+    // Use ?hard=1 query param for hard delete (admin / test cleanup).
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64).unwrap_or(0);
+    let res = s.store.conn.execute(
+        "UPDATE episodes SET invalid_at = ?1 WHERE id = ?2 AND (invalid_at IS NULL OR invalid_at = 0)",
+        libsql::params![now, uuid.clone()],
+    ).await.map_err(|e| ise(e.to_string()))?;
+    Ok(Json(json!({ "status": "ok", "invalidated": res })))
+}
+
+#[derive(Deserialize, Default)]
+struct ForgetBody {
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(default)]
+    query: Option<String>,
+    #[serde(default)]
+    ids: Option<Vec<String>>,
+    #[serde(default)]
+    hard: bool,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+async fn post_forget(State(s): State<HttpState>, Json(body): Json<ForgetBody>) -> Result<Json<Value>, Problem> {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64).unwrap_or(0);
+    let mut to_invalidate: Vec<String> = Vec::new();
+
+    if let Some(ids) = body.ids.as_ref() {
+        to_invalidate.extend(ids.iter().cloned());
+    }
+    if let Some(src) = body.source.as_deref() {
+        let mut rows = s.store.conn.query(
+            "SELECT id FROM episodes WHERE source = ?1 AND (invalid_at IS NULL OR invalid_at = 0)",
+            libsql::params![src.to_string()],
+        ).await.map_err(|e| ise(e.to_string()))?;
+        while let Some(row) = rows.next().await.map_err(|e| ise(e.to_string()))? {
+            if let Ok(id) = row.get::<String>(0) { to_invalidate.push(id); }
+        }
+    }
+    if let Some(q) = body.query.as_deref() {
+        let cfg = SearchConfig { limit: body.limit.unwrap_or(20), ..Default::default() };
+        let hits = s.searcher.search_episodes(q, &cfg).await.map_err(|e| ise(e.to_string()))?;
+        for h in hits {
+            if let Some(id) = h.row.get("id").and_then(|v| v.as_str()) {
+                to_invalidate.push(id.to_string());
+            }
+        }
+    }
+    to_invalidate.sort();
+    to_invalidate.dedup();
+    if to_invalidate.is_empty() {
+        return Ok(Json(json!({ "status": "ok", "count": 0 })));
+    }
+
+    let mut count = 0u64;
+    for id in &to_invalidate {
+        let r = if body.hard {
+            s.store.conn.execute("DELETE FROM episodes WHERE id = ?1", libsql::params![id.clone()]).await
+        } else {
+            s.store.conn.execute(
+                "UPDATE episodes SET invalid_at = ?1 WHERE id = ?2 AND (invalid_at IS NULL OR invalid_at = 0)",
+                libsql::params![now, id.clone()],
+            ).await
+        };
+        match r { Ok(n) => count += n, Err(e) => return Err(ise(e.to_string())) }
+    }
+    Ok(Json(json!({ "status": "ok", "count": count, "ids": to_invalidate, "hard": body.hard })))
 }
 
 async fn delete_group(State(s): State<HttpState>, Path(gid): Path<String>) -> Result<Json<Value>, Problem> {

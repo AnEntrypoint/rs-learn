@@ -27,6 +27,8 @@ async fn main() -> anyhow::Result<()> {
         "debug" => cmd_debug(&args[1..]).await?,
         "add" => cmd_add(&args[1..]).await?,
         "search" => cmd_search(&args[1..]).await?,
+        "forget" => cmd_forget(&args[1..]).await?,
+        "episodes" => cmd_episodes(&args[1..]).await?,
         "clear" => cmd_clear().await?,
         "build-communities" => cmd_build_communities().await?,
         "serve" => cmd_serve(&args[1..]).await?,
@@ -53,6 +55,8 @@ fn print_help(to_stderr: bool) {
         "  debug [subsystem]           dump /debug snapshot (all or one subsystem)",
         "  add <text> [--source S] [--file <path>|-] [--chunk-size N] [--no-extract]  ingest episode(s)",
         "  search <query> [--scope S] [--limit N]",
+        "  forget <id|directive> [--source S] [--query Q] [--hard] [--limit N]   invalidate episodes (soft by default)",
+        "  episodes [--source S] [--limit N]   list episodes by source (active only)",
         "  clear                       drop all graph data",
         "  build-communities           run label propagation + summarize",
         "  serve [--port N]            start HTTP REST server",
@@ -168,6 +172,109 @@ async fn cmd_add(args: &[String]) -> anyhow::Result<()> {
             );
         }
     }
+    Ok(())
+}
+
+async fn cmd_forget(args: &[String]) -> anyhow::Result<()> {
+    let hard = args.iter().any(|a| a == "--hard");
+    let limit: usize = flag(args, "--limit").and_then(|s| s.parse().ok()).unwrap_or(20);
+    let source = flag(args, "--source");
+    let query = flag(args, "--query");
+
+    // First positional that's not a flag. Two-word forms like `by-source <tag>` are also accepted.
+    let positional: Vec<&String> = args.iter()
+        .filter(|a| !a.starts_with("--"))
+        .collect();
+
+    let mut ids: Vec<String> = Vec::new();
+    let mut effective_source = source.clone();
+    let mut effective_query = query.clone();
+
+    if positional.len() == 2 {
+        match positional[0].as_str() {
+            "by-source" => effective_source = effective_source.or(Some(positional[1].clone())),
+            "by-query"  => effective_query  = effective_query.or(Some(positional[1].clone())),
+            "by-id"     => ids.push(positional[1].clone()),
+            _ => {}
+        }
+    } else if positional.len() == 1 && effective_source.is_none() && effective_query.is_none() {
+        // Bare UUID = by-id
+        ids.push(positional[0].clone());
+    }
+
+    let (store, embedder, llm) = open_graph().await?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64).unwrap_or(0);
+
+    if let Some(src) = effective_source.as_deref() {
+        let mut rows = store.conn.query(
+            "SELECT id FROM episodes WHERE source = ?1 AND (invalid_at IS NULL OR invalid_at = 0)",
+            libsql::params![src.to_string()],
+        ).await?;
+        while let Some(row) = rows.next().await? {
+            if let Ok(id) = row.get::<String>(0) { ids.push(id); }
+        }
+    }
+    if let Some(q) = effective_query.as_deref() {
+        let searcher = Searcher::with_llm(store.clone(), embedder.clone(), llm.clone());
+        let cfg = SearchConfig { limit, ..Default::default() };
+        let hits = searcher.search_episodes(q, &cfg).await?;
+        for h in hits {
+            if let Some(id) = h.row.get("id").and_then(|v| v.as_str()) {
+                ids.push(id.to_string());
+            }
+        }
+    }
+    ids.sort();
+    ids.dedup();
+    if ids.is_empty() {
+        println!("forgot 0 episodes (no matches)");
+        return Ok(());
+    }
+    let mut count = 0u64;
+    for id in &ids {
+        let r = if hard {
+            store.conn.execute("DELETE FROM episodes WHERE id = ?1", libsql::params![id.clone()]).await?
+        } else {
+            store.conn.execute(
+                "UPDATE episodes SET invalid_at = ?1 WHERE id = ?2 AND (invalid_at IS NULL OR invalid_at = 0)",
+                libsql::params![now, id.clone()],
+            ).await?
+        };
+        count += r;
+    }
+    println!("forgot {} episodes ({})", count, if hard { "hard" } else { "soft" });
+    Ok(())
+}
+
+async fn cmd_episodes(args: &[String]) -> anyhow::Result<()> {
+    let limit: usize = flag(args, "--limit").and_then(|s| s.parse().ok()).unwrap_or(50);
+    let source = flag(args, "--source");
+    let (store, _embedder, _llm) = open_graph().await?;
+    let mut rows = match source.as_deref() {
+        Some(src) => store.conn.query(
+            "SELECT id, content, source, created_at, invalid_at FROM episodes \
+             WHERE source = ?1 AND (invalid_at IS NULL OR invalid_at = 0) \
+             ORDER BY created_at DESC LIMIT ?2",
+            libsql::params![src.to_string(), limit as i64],
+        ).await?,
+        None => store.conn.query(
+            "SELECT id, content, source, created_at, invalid_at FROM episodes \
+             WHERE invalid_at IS NULL OR invalid_at = 0 \
+             ORDER BY created_at DESC LIMIT ?1",
+            libsql::params![limit as i64],
+        ).await?,
+    };
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        out.push(serde_json::json!({
+            "id": row.get::<String>(0).unwrap_or_default(),
+            "content": row.get::<String>(1).unwrap_or_default(),
+            "source": row.get::<String>(2).ok(),
+            "created_at": row.get::<i64>(3).ok(),
+        }));
+    }
+    println!("{}", serde_json::to_string_pretty(&out)?);
     Ok(())
 }
 

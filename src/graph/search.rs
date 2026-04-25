@@ -160,7 +160,16 @@ impl Searcher {
     }
 
     pub async fn search_episodes(&self, query: &str, cfg: &SearchConfig) -> Result<Vec<SearchHit>> {
-        self.search_table("episodes", query, cfg).await
+        let hits = self.search_table("episodes", query, cfg).await?;
+        // Filter out soft-deleted (invalidated) episodes unless caller pinned an as_of.
+        // With as_of set, defer to the temporal filter that already handles invalid_at.
+        if cfg.as_of.is_some() {
+            return Ok(self.filter_as_of_edges(hits, cfg.as_of));
+        }
+        Ok(hits.into_iter().filter(|h| {
+            let invalid_at = h.row.get("invalid_at").and_then(|v| v.as_i64()).unwrap_or(0);
+            invalid_at == 0
+        }).collect())
     }
 
     pub async fn search_communities(&self, query: &str, cfg: &SearchConfig) -> Result<Vec<SearchHit>> {
