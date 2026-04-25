@@ -53,26 +53,7 @@ pub struct Orchestrator {
 
 impl Orchestrator {
     pub async fn new_default() -> Result<Self> {
-        let db_path = std::env::var("RS_LEARN_DB_PATH").unwrap_or_else(|_| {
-            // Prefer <project>/.gm/rs-learn.db when a .gm directory exists or can be created.
-            // This co-locates rs-learn state with other gm tooling output (counters, drafts,
-            // learning snapshots) and lets projects opt-in to git-tracking the memory store
-            // by un-ignoring .gm/rs-learn.db. Falls back to legacy ./rs-learn.db when the
-            // .gm dir cannot be created (read-only checkout).
-            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-            let gm_dir = cwd.join(".gm");
-            // Migrate legacy ./rs-learn.db if it exists and .gm/rs-learn.db doesn't.
-            let target = gm_dir.join("rs-learn.db");
-            let legacy = cwd.join("rs-learn.db");
-            if std::fs::create_dir_all(&gm_dir).is_ok() {
-                if legacy.exists() && !target.exists() {
-                    let _ = std::fs::rename(&legacy, &target);
-                }
-                target.to_string_lossy().to_string()
-            } else {
-                legacy.to_string_lossy().to_string()
-            }
-        });
+        let db_path = crate::resolve_db_path();
         let store = Arc::new(Store::open(&db_path).await?);
         let targets: Vec<String> = std::env::var("RS_LEARN_TARGETS")
             .unwrap_or_else(|_| "default".into())

@@ -25,6 +25,20 @@ bun x skills add AnEntrypoint/rs-learn
 npx skills add AnEntrypoint/rs-learn
 ```
 
+## Command map
+
+| Goal | Command |
+|---|---|
+| Persist a fact across sessions | `gm:memorize` agent (background, classifies); or `bun x rs-learn add … --no-extract` for synchronous capture |
+| Recall mid-task in a gm session | `exec:recall <query>` |
+| Search ingested content | `bun x rs-learn search "query" --scope episodes` (default scope returns node names only) |
+| Question answered via stored memory | `bun x rs-learn query` (needs `RS_LEARN_ACP_COMMAND`) |
+| Train the router on a prior query | `bun x rs-learn feedback <request_id> 0..1` |
+| Drop the store | `bun x rs-learn clear` |
+| Inspect state | `bun x rs-learn debug [subsystem]` |
+
+`bun x rs-learn add` fits file/batch ingestion (`--file`, seeding). Per-turn agent work flows through `gm:memorize` so classification and AGENTS.md updates land together.
+
 ## Workflow
 
 **Store a fact (fast, ~1s):**
@@ -50,7 +64,8 @@ bun x rs-learn query "why do terrain borders show stitch artifacts?"
 ## Gotchas
 
 - **Default search scope returns entity names only, not content.** `search "query"` (no `--scope`) searches nodes and returns entity names with no summary text — nearly useless for recall. Always pass `--scope episodes` when you want the actual stored text back.
-- **`rs-learn.db` is created in the working directory.** Run from the project root so memory co-locates with the project. Wrong CWD = separate disconnected database.
+- **DB path resolution:** `.gm/rs-learn.db` under the current working directory by default. Falls back to `./rs-learn.db` only if `.gm/` cannot be created. Override with `RS_LEARN_DB_PATH`. Wrong CWD = separate disconnected database. Legacy `./rs-learn.db` is auto-migrated to `.gm/rs-learn.db` on first run.
+- **Sharing memory across sessions/machines:** commit `.gm/rs-learn.db` to your repo. Add `!.gm/rs-learn.db` to `.gitignore` (after broader `.gm/` and `*.db` rules). Pulling the repo brings every prior session's facts. Conflicts resolve by re-running `bun x rs-learn add` — the DB is write-mostly, append-shape friendly.
 - **`--no-extract` and `--scope episodes` are a pair.** Facts stored with `--no-extract` have no graph nodes — they only exist as episodes. They are invisible to `search` without `--scope episodes`.
 - **Shell arg-length limit.** `bun x rs-learn add "$(cat file)"` crashes bun when the file exceeds ~2048 chars. Use `--file <path>` or `--file -` (stdin) instead.
 - **LLM extraction is sequential per chunk.** With `--chunk-size 2000` and a 12KB file (~6 chunks), full extraction takes 4+ minutes. Use `--no-extract` when speed matters and graph structure is not needed.
@@ -85,7 +100,7 @@ bun x rs-learn search "query" --limit 20
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `RS_LEARN_DB_PATH` | `./rs-learn.db` | libsql file path |
+| `RS_LEARN_DB_PATH` | `.gm/rs-learn.db` (auto-created) | libsql file path; falls back to `./rs-learn.db` if `.gm/` not writable |
 | `RS_LEARN_ACP_COMMAND` | — | ACP stdio agent command (enables `query`) |
 | `RS_LEARN_BACKEND` | `claude-cli` | LLM backend for entity/edge extraction |
 

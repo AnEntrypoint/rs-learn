@@ -108,7 +108,7 @@ async fn cmd_debug(args: &[String]) -> anyhow::Result<()> {
 }
 
 async fn open_graph() -> anyhow::Result<(Arc<Store>, Arc<Embedder>, Arc<LlmJson>)> {
-    let db_path = std::env::var("RS_LEARN_DB_PATH").unwrap_or_else(|_| "./rs-learn.db".into());
+    let db_path = rs_learn::resolve_db_path();
     let store = Arc::new(Store::open(&db_path).await?);
     let embedder = Arc::new(Embedder::new());
     let backend = backend::from_env().map_err(|e| anyhow::anyhow!("backend: {e}"))?;

@@ -15,6 +15,8 @@ pub mod graph;
 pub mod simd;
 pub mod cache;
 pub mod spine;
+pub mod db_path;
+pub use db_path::resolve_db_path;
 
 pub use acp::AcpClient;
 pub use backend::{AgentBackend, ClaudeCliClient};
