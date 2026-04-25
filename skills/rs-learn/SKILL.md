@@ -1,7 +1,7 @@
 ---
 name: rs-learn
 description: Continual-learning memory for any project. Ingests text/files into a local graph+vector store, retrieves semantically, and routes queries through any ACP stdio agent. Zero install — invoke via bun x rs-learn or npx rs-learn.
-version: 0.1.35
+version: 0.1.36
 ---
 
 # rs-learn — Continual-Learning Memory
@@ -62,9 +62,12 @@ bun x rs-learn add --file <path>                       # read from file
 bun x rs-learn add --file -                            # read from stdin
 bun x rs-learn add --file doc.md --chunk-size 2000     # chunk at paragraph boundaries
 bun x rs-learn add <text> --source "label"             # tag the source
+bun x rs-learn add <text> --no-extract                 # fast: skip LLM, store episode+embedding only (~1s)
 ```
 
-`--chunk-size N` splits on paragraph (`\n\n`) or line boundaries, ingesting each chunk as a separate episode tagged `"source [i/total]"`. Use for files larger than ~1 KB. Each chunk triggers LLM entity+edge extraction — expect 20-40s per chunk.
+`--chunk-size N` splits on paragraph (`\n\n`) or line boundaries, ingesting each chunk as a separate episode tagged `"source [i/total]"`. Each chunk triggers LLM entity+edge extraction — expect 20-40s per chunk.
+
+`--no-extract` skips LLM entity and edge extraction entirely. Episode is stored with its embedding for semantic search but no graph structure is built. Use this for short memory facts where retrieval via `search --scope episodes` is sufficient and latency matters (e.g. agent memorize loops).
 
 ## Search scopes
 

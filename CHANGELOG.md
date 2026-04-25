@@ -1,3 +1,11 @@
+## [0.1.36]
+
+### Added
+- `add --no-extract` — fast ingest path: stores episode + embedding only, skips LLM entity/edge extraction. Drops per-episode latency from 20-40s to ~1s. Ideal for memory/memorize use cases where the text itself is the fact.
+
+### Changed
+- Removed global `writer: Mutex` from `Ingestor` — eliminates serialization bottleneck that forced all ingest operations to queue behind each other.
+
 ## [0.1.35]
 
 ### Added

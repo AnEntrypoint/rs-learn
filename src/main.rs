@@ -51,7 +51,7 @@ fn print_help(to_stderr: bool) {
         "  query <text>                run one query through the orchestrator (prints JSON)",
         "  feedback <request_id> <quality 0..1> [signal]   record quality for a prior query",
         "  debug [subsystem]           dump /debug snapshot (all or one subsystem)",
-        "  add <text> [--source S] [--file <path>|-] [--chunk-size N]  ingest episode(s)",
+        "  add <text> [--source S] [--file <path>|-] [--chunk-size N] [--no-extract]  ingest episode(s)",
         "  search <query> [--scope S] [--limit N]",
         "  clear                       drop all graph data",
         "  build-communities           run label propagation + summarize",
@@ -115,6 +115,7 @@ async fn open_graph() -> anyhow::Result<(Arc<Store>, Arc<Embedder>, Arc<LlmJson>
 async fn cmd_add(args: &[String]) -> anyhow::Result<()> {
     let source = flag(args, "--source").unwrap_or_else(|| "message".into());
     let chunk_size: usize = flag(args, "--chunk-size").and_then(|s| s.parse().ok()).unwrap_or(0);
+    let no_extract = args.iter().any(|a| a == "--no-extract");
 
     let text = if let Some(path) = flag(args, "--file") {
         if path == "-" {
@@ -135,20 +136,37 @@ async fn cmd_add(args: &[String]) -> anyhow::Result<()> {
     let (store, embedder, llm) = open_graph().await?;
     let ingestor = Ingestor::new(store, embedder, llm);
 
-    let chunks: Vec<&str> = if chunk_size > 0 {
-        chunk_text(&text, chunk_size)
+    let chunks: Vec<String> = if chunk_size > 0 {
+        chunk_text(&text, chunk_size).into_iter().map(String::from).collect()
     } else {
-        vec![text.as_str()]
+        vec![text.clone()]
     };
 
     let total = chunks.len();
-    for (i, chunk) in chunks.iter().enumerate() {
-        let src = if total > 1 { format!("{} [{}/{}]", source, i + 1, total) } else { source.clone() };
-        let r = ingestor.add_episode(chunk, &src, None, None).await?;
-        println!(
-            "episode={} nodes={} edges={} expired={} chunk={}/{}",
-            r.episode_id, r.node_count, r.edge_count, r.expired_edge_ids.len(), i + 1, total
-        );
+    if no_extract {
+        let futs: Vec<_> = chunks.iter().enumerate().map(|(i, chunk)| {
+            let src = if total > 1 { format!("{} [{}/{}]", source, i + 1, total) } else { source.clone() };
+            let ingestor = ingestor.clone();
+            let chunk = chunk.clone();
+            async move {
+                let r = ingestor.add_episode_fast(&chunk, &src, None).await?;
+                anyhow::Ok((i + 1, r))
+            }
+        }).collect();
+        let results = futures::future::join_all(futs).await;
+        for res in results {
+            let (n, r) = res?;
+            println!("episode={} chunk={}/{} (fast)", r.episode_id, n, total);
+        }
+    } else {
+        for (i, chunk) in chunks.iter().enumerate() {
+            let src = if total > 1 { format!("{} [{}/{}]", source, i + 1, total) } else { source.clone() };
+            let r = ingestor.add_episode(chunk, &src, None, None).await?;
+            println!(
+                "episode={} nodes={} edges={} expired={} chunk={}/{}",
+                r.episode_id, r.node_count, r.edge_count, r.expired_edge_ids.len(), i + 1, total
+            );
+        }
     }
     Ok(())
 }

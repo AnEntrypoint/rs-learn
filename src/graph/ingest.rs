@@ -4,7 +4,6 @@ use crate::store::{now_ms, Store};
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use super::edges::{EdgeOps, ResolvedEdge};
@@ -38,7 +37,6 @@ pub struct Ingestor {
     pub llm: Arc<LlmJson>,
     pub entity_ops: Arc<EntityOps>,
     pub edge_ops: Arc<EdgeOps>,
-    writer: Mutex<()>,
 }
 
 impl Ingestor {
@@ -61,7 +59,6 @@ impl Ingestor {
             llm,
             entity_ops,
             edge_ops,
-            writer: Mutex::new(()),
         })
     }
 
@@ -75,6 +72,29 @@ impl Ingestor {
         self.add_episode_with(content, source, reference_time, group_id, None, None).await
     }
 
+    pub async fn add_episode_fast(
+        &self,
+        content: &str,
+        source: &str,
+        group_id: Option<&str>,
+    ) -> Result<IngestResult> {
+        let now = now_ms();
+        let episode_id = Uuid::new_v4().to_string();
+        let episode = EpisodeRow {
+            id: episode_id.clone(),
+            content: content.to_string(),
+            source: Some(source.to_string()),
+            group_id: group_id.map(String::from),
+            created_at: Some(now),
+            valid_at: Some(now),
+            invalid_at: None,
+        };
+        self.store.insert_episode(&episode).await?;
+        let m = super::metrics::metrics();
+        super::metrics::incr(&m.episodes_ingested, 1);
+        Ok(IngestResult { episode_id, node_count: 0, edge_count: 0, expired_edge_ids: vec![] })
+    }
+
     pub async fn add_episode_with(
         &self,
         content: &str,
@@ -84,7 +104,6 @@ impl Ingestor {
         entity_types_override: Option<&str>,
         edge_types_override: Option<&Value>,
     ) -> Result<IngestResult> {
-        let _lock = self.writer.lock().await;
         let now = now_ms();
         let episode_id = Uuid::new_v4().to_string();
         let ref_time_str = reference_time
@@ -106,6 +125,7 @@ impl Ingestor {
             .load_previous_episodes_before(before_ms, 4)
             .await
             .unwrap_or_else(|_| json!([]));
+
         let extracted = self
             .entity_ops
             .extract_entities_with(source, content, &previous, entity_types_override)
@@ -126,6 +146,7 @@ impl Ingestor {
             .extract_edges_with(content, &previous, &entities, &ref_time_str, edge_types_override)
             .await
             .unwrap_or_default();
+
         let mut resolved = self
             .edge_ops
             .resolve_edges(extracted_edges, &entities)
@@ -211,7 +232,7 @@ impl Ingestor {
 
 impl Ingestor {
     pub async fn add_triplet(&self, src: Entity, dst: Entity, relation: &str, fact: &str, group_id: Option<&str>) -> Result<String> {
-        let _lock = self.writer.lock().await;
+
         let now = now_ms();
         let mut src = src; let mut dst = dst;
         if src.group_id.is_none() { src.group_id = group_id.map(String::from); }
@@ -268,7 +289,7 @@ impl Ingestor {
     }
 
     pub async fn clear_graph(&self, group_ids: Option<&[String]>) -> Result<()> {
-        let _lock = self.writer.lock().await;
+
         let group_tables = ["edges", "nodes", "episodes", "communities"];
         let global_tables = ["community_members", "saga_episodes", "sagas"];
         match group_ids {
