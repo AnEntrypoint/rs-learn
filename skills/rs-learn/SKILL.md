@@ -1,6 +1,15 @@
 ---
 name: rs-learn
-description: Continual-learning memory for any project. Ingests text/files into a local graph+vector store, retrieves semantically, and routes queries through any ACP stdio agent. Zero install — invoke via bun x rs-learn or npx rs-learn.
+description: >
+  Use this skill when the user wants persistent memory, knowledge retrieval, or
+  continual learning for their project — even if they don't explicitly say
+  "memory" or "graph". Activate when the user wants to: remember facts across
+  sessions, search previously ingested notes or docs, ask a question with
+  context from stored knowledge, ingest a file or document into a searchable
+  store, or wire an AI agent to a persistent knowledge base. Also activate when
+  replacing a file-based memory system (e.g. MEMORY.md + markdown files) with
+  a semantic, queryable alternative. Zero install: runs via `bun x rs-learn`
+  or `npx rs-learn`. Creates rs-learn.db in the project root.
 version: 0.1.36
 ---
 
@@ -16,26 +25,60 @@ bun x skills add AnEntrypoint/rs-learn
 npx skills add AnEntrypoint/rs-learn
 ```
 
-## Quick start
+## Workflow
+
+**Store a fact (fast, ~1s):**
+```bash
+bun x rs-learn add "terrain shader palette switching is forbidden" --source "tip" --no-extract
+```
+
+**Store a file (full graph extraction, 20-40s/chunk):**
+```bash
+bun x rs-learn add --file AGENTS.md --source "AGENTS.md" --chunk-size 2000
+```
+
+**Retrieve — always use `--scope episodes` for full content:**
+```bash
+bun x rs-learn search "biome color blending" --scope episodes --limit 5
+```
+
+**Query through an ACP agent (requires `RS_LEARN_ACP_COMMAND`):**
+```bash
+bun x rs-learn query "why do terrain borders show stitch artifacts?"
+```
+
+## Gotchas
+
+- **Default search scope returns entity names only, not content.** `search "query"` (no `--scope`) searches nodes and returns entity names with no summary text — nearly useless for recall. Always pass `--scope episodes` when you want the actual stored text back.
+- **`rs-learn.db` is created in the working directory.** Run from the project root so memory co-locates with the project. Wrong CWD = separate disconnected database.
+- **`--no-extract` and `--scope episodes` are a pair.** Facts stored with `--no-extract` have no graph nodes — they only exist as episodes. They are invisible to `search` without `--scope episodes`.
+- **Shell arg-length limit.** `bun x rs-learn add "$(cat file)"` crashes bun when the file exceeds ~2048 chars. Use `--file <path>` or `--file -` (stdin) instead.
+- **LLM extraction is sequential per chunk.** With `--chunk-size 2000` and a 12KB file (~6 chunks), full extraction takes 4+ minutes. Use `--no-extract` when speed matters and graph structure is not needed.
+- **`RS_LEARN_BACKEND` defaults to `claude-cli`.** Entity extraction calls Claude via the local CLI. If `claude` is not in PATH, extraction silently fails and episodes store with zero nodes/edges.
+
+## add subcommand
 
 ```bash
-# Ingest a file (chunked, paragraph-aware)
-bun x rs-learn add --file AGENTS.md --source "AGENTS.md" --chunk-size 2000
+bun x rs-learn add <text>                              # inline text
+bun x rs-learn add --file <path>                       # read from file
+bun x rs-learn add --file -                            # read from stdin
+bun x rs-learn add --file doc.md --chunk-size 2000     # chunk at paragraph boundaries
+bun x rs-learn add <text> --source "label"             # tag the source
+bun x rs-learn add <text> --no-extract                 # fast: skip LLM, episode+embedding only (~1s)
+```
 
-# Ingest from stdin
-cat notes.md | bun x rs-learn add --file - --source "notes"
+`--chunk-size N` splits on paragraph (`\n\n`) or line boundaries. Each chunk is a separate episode tagged `"source [i/total]"`. Each chunk triggers LLM entity+edge extraction — 20-40s per chunk.
 
-# Ingest a short snippet directly
-bun x rs-learn add "terrain shader palette switching is forbidden" --source "tip"
+`--no-extract` skips all LLM calls. Episode stored with its embedding only. Use for short memory facts where `search --scope episodes` retrieval is sufficient and latency matters.
 
-# Semantic search
-bun x rs-learn search "biome color blending" --limit 5
+## Search scopes
 
-# Query through an ACP agent (requires RS_LEARN_ACP_COMMAND)
-bun x rs-learn query "why do terrain borders show stitch artifacts?"
-
-# Show graph/memory stats
-bun x rs-learn debug
+```bash
+bun x rs-learn search "query" --scope episodes       # full episode content (use this for recall)
+bun x rs-learn search "query"                        # nodes/entities only (names, no content)
+bun x rs-learn search "query" --scope facts          # edges/relations
+bun x rs-learn search "query" --scope communities    # cluster summaries
+bun x rs-learn search "query" --limit 20
 ```
 
 ## Environment
@@ -54,29 +97,24 @@ export RS_LEARN_ACP_COMMAND="opencode acp"
 export RS_LEARN_ACP_COMMAND="claude --print -p"
 ```
 
-## add subcommand
+## MCP server
+
+Expose rs-learn as an MCP tool so agents can call add/search without spawning subprocesses:
 
 ```bash
-bun x rs-learn add <text>                              # inline text
-bun x rs-learn add --file <path>                       # read from file
-bun x rs-learn add --file -                            # read from stdin
-bun x rs-learn add --file doc.md --chunk-size 2000     # chunk at paragraph boundaries
-bun x rs-learn add <text> --source "label"             # tag the source
-bun x rs-learn add <text> --no-extract                 # fast: skip LLM, store episode+embedding only (~1s)
+bun x rs-learn mcp   # start MCP stdio server
 ```
 
-`--chunk-size N` splits on paragraph (`\n\n`) or line boundaries, ingesting each chunk as a separate episode tagged `"source [i/total]"`. Each chunk triggers LLM entity+edge extraction — expect 20-40s per chunk.
-
-`--no-extract` skips LLM entity and edge extraction entirely. Episode is stored with its embedding for semantic search but no graph structure is built. Use this for short memory facts where retrieval via `search --scope episodes` is sufficient and latency matters (e.g. agent memorize loops).
-
-## Search scopes
-
-```bash
-bun x rs-learn search "query"                        # nodes (default)
-bun x rs-learn search "query" --scope facts          # edges/facts
-bun x rs-learn search "query" --scope episodes       # raw episodes
-bun x rs-learn search "query" --scope communities
-bun x rs-learn search "query" --limit 20
+Wire into `.mcp.json`:
+```json
+{
+  "mcpServers": {
+    "rs-learn": {
+      "command": "bun",
+      "args": ["x", "rs-learn", "mcp"]
+    }
+  }
+}
 ```
 
 ## All subcommands
@@ -96,21 +134,11 @@ bun x rs-learn search "query" --limit 20
 
 ## What gets stored
 
-Each `add` call creates:
-- **Episode** — raw content record
+Each `add` call (without `--no-extract`) creates:
+- **Episode** — raw content record (always)
 - **Nodes** — named entities extracted by LLM (people, concepts, files, APIs)
 - **Edges** — typed relations between nodes (USES, IMPLEMENTS, CONTRADICTS, etc.)
-- **Embeddings** — 768-dim vectors for HNSW retrieval
-
-## Memory location
-
-`rs-learn.db` is created in the **current working directory**. Run from your project root to co-locate memory with the project.
-
-```
-/my-project/
-  rs-learn.db       ← created automatically on first run
-  AGENTS.md         ← ingest this for project-specific memory
-```
+- **Embeddings** — 768-dim vectors for HNSW retrieval (always)
 
 ## Feedback loop
 

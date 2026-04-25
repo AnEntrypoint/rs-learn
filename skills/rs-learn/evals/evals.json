@@ -1,0 +1,46 @@
+{
+  "skill_name": "rs-learn",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I want to remember that our terrain shader must never use int(kind) for biome palette selection — vertex interpolation causes white stitch lines. Store this as a project memory.",
+      "expected_output": "Fact ingested with --no-extract into rs-learn.db, episode ID printed, completes in ~1-2s.",
+      "assertions": [
+        "Command uses --no-extract flag (fast path, no LLM extraction)",
+        "Command uses --source flag to tag the memory",
+        "Episode ID is printed to stdout",
+        "No error output"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Search my project memory for anything about terrain shaders or palette switching.",
+      "expected_output": "Returns episode content mentioning terrain shader palette rule, not just entity names.",
+      "assertions": [
+        "Search uses --scope episodes",
+        "Result includes the actual stored text content",
+        "Result is relevant to terrain/palette topic"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Ingest our AGENTS.md file into the knowledge base so future queries can reference it.",
+      "expected_output": "File ingested with --file flag and --chunk-size for large files, episodes printed per chunk.",
+      "assertions": [
+        "Command uses --file flag pointing to AGENTS.md",
+        "Command includes --chunk-size for files larger than ~1KB",
+        "Episode count printed matches chunk count"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "What's the difference between rs-learn search with and without --scope episodes?",
+      "expected_output": "Explains that default scope returns entity names only; --scope episodes returns full episode content.",
+      "assertions": [
+        "Explains default scope returns entity names not content",
+        "Explains --scope episodes returns full stored text",
+        "Recommends --scope episodes for recall use cases"
+      ]
+    }
+  ]
+}
