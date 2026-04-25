@@ -57,7 +57,7 @@ html, body {
     line-height: 1;
 }
 .app-topbar nav a:hover { background: var(--panel-hover); color: var(--panel-text); }
-.app-topbar nav a.active { color: #ffffff; background: var(--panel-accent); }
+.app-topbar nav a.active { color: var(--panel-accent-fg); background: var(--panel-accent); }
 
 /* Breadcrumb — under topbar */
 .app-crumb {
@@ -298,7 +298,7 @@ html, body {
     gap: 6px;
     padding: 7px 14px;
     background: var(--panel-accent);
-    color: #ffffff;
+    color: var(--panel-accent-fg);
     font-family: inherit;
     font-size: 13px;
     font-weight: 500;
@@ -339,14 +339,14 @@ html, body {
     background: var(--panel-2);
     color: var(--panel-text);
 }
-.chip.accent { background: var(--panel-accent); color: #ffffff; }
+.chip.accent { background: var(--panel-accent); color: var(--panel-accent-fg); }
 .chip.dim { color: var(--panel-text-2); background: var(--panel-1); }
 
 /* Status bar — accent-colored footer */
 .app-status {
     height: 24px;
     background: var(--panel-accent);
-    color: #ffffff;
+    color: var(--panel-accent-fg);
     display: flex;
     align-items: center;
     padding: 0 14px;
@@ -357,7 +357,7 @@ html, body {
 }
 .app-status .spread { flex: 1; }
 .app-status .item { display: flex; align-items: center; gap: 4px; }
-.app-status a { color: #ffffff; text-decoration: none; }
+.app-status a { color: var(--panel-accent-fg); text-decoration: none; }
 
 /* Key-value table */
 .kv {
