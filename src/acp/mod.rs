@@ -76,12 +76,19 @@ impl AcpClient {
 
     async fn spawn_session(&self) -> Result<Session> {
         let spawn_cmd = self.resolve_cmd();
-        let mut child = Command::new(&spawn_cmd)
+        let mut builder = Command::new(&spawn_cmd);
+        builder
             .args(&self.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
+            .kill_on_drop(true);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            builder.creation_flags(0x08000000);
+        }
+        let mut child = builder
             .spawn()
             .map_err(|e| LlmError::Process(format!("spawn {}: {}", spawn_cmd, e)))?;
         let stdin = child.stdin.take().ok_or_else(|| LlmError::Process("stdin".into()))?;
