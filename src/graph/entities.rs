@@ -2,7 +2,6 @@ use crate::embeddings::Embedder;
 use crate::store::types::NodeRow;
 use crate::store::Store;
 use anyhow::Result;
-use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -110,6 +109,7 @@ impl EntityOps {
         previous_episodes: &Value,
         group_id: Option<&str>,
     ) -> Result<Vec<Entity>> {
+        let mut results: Vec<Entity> = Vec::with_capacity(candidates.len());
         let futs = candidates.into_iter().map(|cand| {
             let store = self.store.clone();
             let embedder = self.embedder.clone();
@@ -167,7 +167,10 @@ impl EntityOps {
                 Entity { id: Uuid::new_v4().to_string(), name: cand.name, entity_type: None, embedding: Some(emb), group_id }
             }
         });
-        Ok(join_all(futs).await)
+        for fut in futs {
+            results.push(fut.await);
+        }
+        Ok(results)
     }
 
     #[allow(dead_code)]

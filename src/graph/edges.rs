@@ -183,7 +183,11 @@ impl EdgeOps {
                     .unwrap_or_default()
             }
         });
-        Ok(join_all(llm_futs).await.into_iter().flatten().collect())
+        let mut all: Vec<String> = Vec::new();
+        for fut in llm_futs {
+            all.extend(fut.await);
+        }
+        Ok(all)
     }
 
     pub async fn resolve_temporal_serial(&self, new_edges: &[ResolvedEdge]) -> Result<Vec<String>> {

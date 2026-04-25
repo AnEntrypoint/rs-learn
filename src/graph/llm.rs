@@ -16,7 +16,7 @@ impl LlmJson {
     pub fn new(backend: Arc<dyn AgentBackend>) -> Self {
         Self {
             backend,
-            max_attempts: env_u32("BUNGRAPH_LLM_MAX_ATTEMPTS", 5),
+            max_attempts: env_u32("BUNGRAPH_LLM_MAX_ATTEMPTS", 2),
             timeout_ms: env_u64("BUNGRAPH_LLM_TIMEOUT_MS", 60_000),
             backoff_cap_ms: env_u64("BUNGRAPH_LLM_BACKOFF_CAP_MS", 20_000),
         }
