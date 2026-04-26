@@ -3,7 +3,7 @@
 Downloads and runs the platform-native `rs-learn` binary built on GitHub Releases.
 
 ```
-bunx rs-learn --help
+bun x rs-learn --help
 # or
 npx rs-learn --help
 ```

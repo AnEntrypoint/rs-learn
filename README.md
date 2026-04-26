@@ -23,7 +23,7 @@ Layers:
 
 ```bash
 npx rs-learn query "What's Alice's role?"
-bunx rs-learn query "What's Alice's role?"
+bun x rs-learn query "What's Alice's role?"
 ```
 
 Or install globally:
