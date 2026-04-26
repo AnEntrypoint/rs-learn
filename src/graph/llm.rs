@@ -2,20 +2,8 @@ use crate::backend::AgentBackend;
 use crate::errors::{LlmError, Result};
 use serde_json::Value;
 use std::sync::Arc;
-use std::sync::OnceLock;
 use std::time::Duration;
-use tokio::sync::Semaphore;
 use tokio::time::sleep;
-
-static LLM_GATE: OnceLock<Arc<Semaphore>> = OnceLock::new();
-
-fn llm_gate() -> Arc<Semaphore> {
-    LLM_GATE.get_or_init(|| {
-        let raw = env_u32("RS_LEARN_LLM_MAX_PARALLEL", 2);
-        let permits = raw.clamp(1, 3) as usize;
-        Arc::new(Semaphore::new(permits))
-    }).clone()
-}
 
 pub struct LlmJson {
     backend: Arc<dyn AgentBackend>,
@@ -48,8 +36,6 @@ impl LlmJson {
         let mut last_err: Option<LlmError> = None;
         let mut out: Option<Value> = None;
         for attempt in 1..=self.max_attempts {
-            let _permit = llm_gate().acquire_owned().await
-                .map_err(|e| LlmError::Process(format!("llm semaphore closed: {e}")))?;
             match self.backend.generate(system, user, self.timeout_ms).await {
                 Ok(v) => {
                     let v = coerce_json(v);

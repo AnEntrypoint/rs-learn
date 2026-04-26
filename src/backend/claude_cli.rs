@@ -42,6 +42,8 @@ impl ClaudeCliClient {
     }
 
     pub async fn generate(&self, system: &str, user: &str, timeout_ms: u64) -> Result<Value> {
+        let _gate = crate::llm_gate::acquire().await
+            .map_err(|e| crate::errors::LlmError::Process(format!("llm semaphore closed: {e}")))?;
         let prompt = if system.is_empty() {
             format!("{}\n\nRespond with ONLY a JSON object. No preamble. No code fence.", user)
         } else {

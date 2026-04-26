@@ -16,6 +16,7 @@ pub mod simd;
 pub mod cache;
 pub mod spine;
 pub mod db_path;
+pub mod llm_gate;
 pub use db_path::resolve_db_path;
 
 pub use acp::AcpClient;
