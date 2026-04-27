@@ -7,6 +7,7 @@ pub mod search;
 pub mod recipes;
 pub mod communities;
 pub mod sagas;
+#[cfg(feature = "serve")]
 pub mod http;
 pub mod mcp;
 pub mod time;

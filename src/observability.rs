@@ -1,15 +1,24 @@
-use std::net::SocketAddr;
 use std::sync::{Arc, OnceLock};
 
 use arc_swap::ArcSwap;
-use axum::extract::Path;
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
-use axum::routing::get;
-use axum::{Json, Router};
 use dashmap::DashMap;
 use serde_json::{json, Value};
+
+#[cfg(feature = "serve")]
+use std::net::SocketAddr;
+#[cfg(feature = "serve")]
+use axum::extract::Path;
+#[cfg(feature = "serve")]
+use axum::http::StatusCode;
+#[cfg(feature = "serve")]
+use axum::response::{IntoResponse, Response};
+#[cfg(feature = "serve")]
+use axum::routing::get;
+#[cfg(feature = "serve")]
+use axum::{Json, Router};
+#[cfg(feature = "serve")]
 use tokio::sync::oneshot;
+#[cfg(feature = "serve")]
 use tower_http::cors::CorsLayer;
 
 pub type Provider = Arc<dyn Fn() -> Value + Send + Sync>;
@@ -49,6 +58,7 @@ pub fn dump() -> Value {
     Value::Object(map)
 }
 
+#[cfg(feature = "serve")]
 fn lookup(key: &str) -> Option<Value> {
     let r = registry().load();
     let entry = r.get(key)?;
@@ -58,18 +68,22 @@ fn lookup(key: &str) -> Option<Value> {
     Some(val)
 }
 
+#[cfg(feature = "serve")]
 async fn healthz() -> Json<Value> {
     Json(json!({ "ok": true }))
 }
 
+#[cfg(feature = "serve")]
 async fn debug_all() -> Json<Value> {
     Json(dump())
 }
 
+#[cfg(feature = "serve")]
 async fn debug_names() -> Json<Vec<String>> {
     Json(names())
 }
 
+#[cfg(feature = "serve")]
 async fn debug_one(Path(name): Path<String>) -> Response {
     match lookup(&name) {
         Some(v) => Json(v).into_response(),
@@ -81,12 +95,14 @@ async fn debug_one(Path(name): Path<String>) -> Response {
     }
 }
 
+#[cfg(feature = "serve")]
 pub struct DebugServer {
     shutdown: Option<oneshot::Sender<()>>,
     pub port: u16,
     handle: Option<tokio::task::JoinHandle<()>>,
 }
 
+#[cfg(feature = "serve")]
 impl DebugServer {
     pub async fn close(mut self) {
         if let Some(tx) = self.shutdown.take() {
@@ -98,6 +114,7 @@ impl DebugServer {
     }
 }
 
+#[cfg(feature = "serve")]
 pub async fn start_debug_server(host: &str, port: u16) -> anyhow::Result<DebugServer> {
     let app = Router::new()
         .route("/healthz", get(healthz))

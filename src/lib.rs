@@ -9,7 +9,6 @@ pub mod errors;
 pub mod learn;
 pub mod orchestrator;
 pub mod observability;
-pub mod export;
 pub mod rs_search_bridge;
 pub mod graph;
 pub mod simd;

@@ -18,10 +18,15 @@ path = "src/lib.rs"
 [[bin]]
 name = "rs-learn"
 path = "src/main.rs"
+required-features = ["serve"]
 
 [[bin]]
 name = "rs-learn-validate"
 path = "src/bin/validate.rs"
+
+[features]
+default = ["serve"]
+serve = ["dep:axum", "dep:tower", "dep:tower-http"]
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "process", "io-util", "sync", "time", "signal"] }
@@ -45,13 +50,10 @@ moka = { version = "0.12", features = ["future"] }
 rayon = "1"
 
 libsql = { version = "0.9", default-features = false, features = ["core", "serde"] }
-agent-client-protocol = "0.11"
-safetensors = "0.4"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 
-axum = "0.7"
-tower = "0.5"
-tower-http = { version = "0.5", features = ["cors"] }
+axum = { version = "0.7", optional = true }
+tower = { version = "0.5", optional = true }
+tower-http = { version = "0.5", features = ["cors"], optional = true }
 
 rs-search = { git = "https://github.com/AnEntrypoint/rs-search", branch = "main", default-features = false, features = ["vector"] }
 
