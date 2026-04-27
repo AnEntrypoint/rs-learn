@@ -53,10 +53,6 @@ axum = "0.7"
 tower = "0.5"
 tower-http = { version = "0.5", features = ["cors"] }
 
-candle-core = "0.10"
-candle-nn = "0.10"
-candle-transformers = "0.10"
-
 rs-search = { git = "https://github.com/AnEntrypoint/rs-search", branch = "main", default-features = false, features = ["vector"] }
 
 [dev-dependencies]
