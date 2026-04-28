@@ -1,0 +1,17 @@
+title: "rs-learn"
+tagline: "cross-session memory for gm"
+description: "capture-and-replay learning corpus. the long-term memory that lets gm recall past sessions instead of relearning every time."
+repo: "https://github.com/AnEntrypoint/rs-learn"
+url: "https://anentrypoint.github.io/rs-learn"
+year: 2026
+keywords:
+  - "rust"
+  - "memory"
+  - "learning"
+  - "247420"
+  - "anentrypoint"
+accent_from: "#7ee787"
+accent_to: "#56d364"
+glyph: "⌬"
+code: "005"
+category: "gm"

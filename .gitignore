@@ -68,3 +68,6 @@ docs/data/
 .gm/prd.paused.yml
 # tracked: .gm/rs-learn.db, .gm/code-search/, AGENTS.md, .gm/prd.yml
 # <<< gm managed
+.gm/
+.codeinsight/
+rs-learn.db

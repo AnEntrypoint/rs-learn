@@ -1,0 +1,25 @@
+id: home
+title: Home
+hero:
+  heading: "rs-learn"
+  subheading: "cross-session memory for gm"
+  body: "capture-and-replay learning corpus. the long-term memory that lets gm recall past sessions instead of relearning every time."
+  badges:
+    - { label: "rust" }
+    - { label: "memory" }
+    - { label: "learning" }
+    - { label: "gm" }
+  ctas:
+    - { label: "GitHub", href: "https://github.com/AnEntrypoint/rs-learn", primary: true }
+    - { label: "247420", href: "https://247420.xyz" }
+features:
+  heading: "Why rs-learn"
+  items:
+    - { name: "rust", desc: "flagship trait of rs-learn." }
+    - { name: "memory", desc: "core capability of rs-learn." }
+    - { name: "learning", desc: "core capability of rs-learn." }
+quickstart:
+  heading: Quick start
+  lines:
+    - { kind: "cmt", text: "# source" }
+    - { kind: "cmd", text: "git clone https://github.com/AnEntrypoint/rs-learn.git" }
