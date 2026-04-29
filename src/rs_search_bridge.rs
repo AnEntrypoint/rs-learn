@@ -1,4 +1,5 @@
 use crate::observability;
+use crate::store::Store;
 use serde_json::json;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -19,6 +20,11 @@ pub struct RsSearch {
 }
 
 impl RsSearch {
+    pub fn with_store(store: &Store) -> Self {
+        rs_search::embed_cache::set_shared_connection(store.conn.clone());
+        Self::new()
+    }
+
     pub fn new() -> Self {
         let calls = Arc::new(AtomicU64::new(0));
         let last_hits = Arc::new(AtomicU64::new(0));
