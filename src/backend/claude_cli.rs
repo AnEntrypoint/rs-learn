@@ -74,6 +74,7 @@ impl ClaudeCliClient {
             .kill_on_drop(true);
         #[cfg(windows)]
         {
+            #[allow(unused_imports)]
             use std::os::windows::process::CommandExt;
             builder.creation_flags(0x08000000);
         }
