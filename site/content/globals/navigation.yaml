@@ -1,5 +1,15 @@
 links:
+  - label: pipeline
+    href: "#pipeline"
+  - label: loops
+    href: "#loops"
+  - label: layers
+    href: "#layers"
+  - label: debug
+    href: "#debug"
+  - label: ci
+    href: "#ci"
+  - label: github
+    href: "https://github.com/AnEntrypoint/rs-learn"
   - label: 247420
-    href: https://247420.xyz
-  - label: GitHub
-    href: https://github.com/AnEntrypoint
+    href: "https://247420.xyz"

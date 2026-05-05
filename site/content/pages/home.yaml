@@ -1,25 +1,163 @@
 id: home
-title: Home
+title: home
 hero:
   heading: "rs-learn"
-  subheading: "cross-session memory for gm"
-  body: "capture-and-replay learning corpus. the long-term memory that lets gm recall past sessions instead of relearning every time."
+  subheading: "// pure rust · continual learning · acp wrapper"
+  body: "a continual-learning orchestrator that wraps any agent client protocol stdio agent. gives a stateless agent persistent memory, adaptive routing, and three background learning loops that compress trajectories into reusable strategies and exportable training artefacts. single binary. no node. no npm. probably emerging."
   badges:
     - { label: "rust" }
-    - { label: "memory" }
-    - { label: "learning" }
-    - { label: "gm" }
+    - { label: "acp" }
+    - { label: "libsql" }
+    - { label: "fastgrnn" }
+    - { label: "ewc++" }
+    - { label: "lora" }
+    - { label: "dpo" }
+    - { label: "single binary" }
   ctas:
-    - { label: "GitHub", href: "https://github.com/AnEntrypoint/rs-learn", primary: true }
+    - { label: "github", href: "https://github.com/AnEntrypoint/rs-learn", primary: true }
+    - { label: "npm", href: "https://www.npmjs.com/package/rs-learn" }
     - { label: "247420", href: "https://247420.xyz" }
-features:
-  heading: "Why rs-learn"
-  items:
-    - { name: "rust", desc: "flagship trait of rs-learn." }
-    - { name: "memory", desc: "core capability of rs-learn." }
-    - { name: "learning", desc: "core capability of rs-learn." }
+
 quickstart:
-  heading: Quick start
+  heading: "quick start"
   lines:
-    - { kind: "cmt", text: "# source" }
-    - { kind: "cmd", text: "git clone https://github.com/AnEntrypoint/rs-learn.git" }
+    - { kind: "cmt", text: "no rust required — npm/bunx ships platform binaries" }
+    - { kind: "cmd", text: "npx rs-learn query \"what's alice's role?\"" }
+    - { kind: "cmd", text: "bun x rs-learn query \"what's alice's role?\"" }
+    - { kind: "cmt", text: "or install globally" }
+    - { kind: "cmd", text: "npm install -g rs-learn" }
+    - { kind: "cmt", text: "from source" }
+    - { kind: "cmd", text: "cargo install --git https://github.com/AnEntrypoint/rs-learn" }
+    - { kind: "cmt", text: "wire any acp stdio agent" }
+    - { kind: "cmd", text: "RS_LEARN_ACP_COMMAND=\"opencode acp\" rs-learn" }
+    - { kind: "cmd", text: "RS_LEARN_ACP_COMMAND=\"kilo acp\" rs-learn" }
+    - { kind: "cmd", text: "RS_LEARN_ACP_COMMAND=\"gemini-cli acp\" rs-learn" }
+    - { kind: "cmd", text: "RS_LEARN_ACP_COMMAND=\"codex acp\" rs-learn" }
+    - { kind: "cmt", text: "or claude-cli backend (auto-selects when ACP_COMMAND unset)" }
+    - { kind: "cmd", text: "RS_LEARN_CLAUDE_MODEL=haiku rs-learn" }
+    - { kind: "cmt", text: "feedback closes the loop" }
+    - { kind: "cmd", text: "rs-learn feedback <request_id> 0.9" }
+    - { kind: "cmd", text: "rs-learn debug" }
+
+features:
+  heading: "why rs-learn"
+  items:
+    - { name: "persistent memory", desc: "libsql vector + graph + fts5 in one file. zero services.", meta: "store" }
+    - { name: "graph attention", desc: "8-head with edge features: relation, recency decay, weight. weighted subgraph context.", meta: "attn" }
+    - { name: "adaptive router", desc: "fastgrnn · 90% sparse · rank-8 low-rank. softmax over acp targets + bucket + temp + top-p.", meta: "router" }
+    - { name: "three learning loops", desc: "instant (per-turn hebbian), background (hourly k-means + retrain), deep (ewc++ on z-score boundary).", meta: "learn" }
+    - { name: "reasoning bank", desc: "acp-summarized strategies. ema success-rate updated on every feedback. dpo source.", meta: "bank" }
+    - { name: "agent-agnostic", desc: "opencode, kilo, claude-cli, gemini-cli, codex — anything that speaks acp or claude -p.", meta: "acp" }
+    - { name: "live observability", desc: "/debug/<subsystem> endpoints on 127.0.0.1:7878. structured tracing. nothing hidden.", meta: "debug" }
+    - { name: "exportable artefacts", desc: "safetensors router weights, patterns.jsonl, preferences.jsonl (dpo), huggingface push.", meta: "export" }
+
+sections:
+  - id: pipeline
+    kind: rows
+    label: "pipeline // request"
+    heading: "one turn, start to finish."
+    body: "each user query flows through a fixed five-stage pipeline. every stage is a named subsystem, every subsystem is individually inspectable at runtime, every transition is witnessed."
+    items:
+      - { code: "01", name: "recall · memory", sub: "libsql vector + graph + fts5. hnsw-equivalent ann lookup over past episodes, entities, mentions.", meta: "store" }
+      - { code: "02", name: "attend · attention", sub: "8-head graph attention with edge features: relation one-hot, recency decay, edge weight. weighted subgraph context.", meta: "attn" }
+      - { code: "03", name: "route · router", sub: "fastgrnn gate with 90% sparsity + rank-8 low-rank factor. softmax over acp targets + context bucket + temperature + top-p + confidence.", meta: "router" }
+      - { code: "04", name: "act · acp agent", sub: "forwards to the chosen stdio agent. opencode, kilo, claude-cli, gemini-cli, codex — anything that speaks acp.", meta: "acp" }
+      - { code: "05", name: "learn · instant loop", sub: "trajectory capture into reasoning bank. rank-2 microlora hebbian adapter applied in-place. feedback closes the loop.", meta: "instant" }
+
+  - id: loops
+    kind: rows
+    label: "learning // three loops"
+    heading: "continual learning, three clocks."
+    body: "learning is split across three cadences. each resolves a different tension between speed and stability. the deep loop uses elastic weight consolidation with online fisher information (ema decay 0.999) so old skills survive new ones."
+    items:
+      - { code: "01", name: "instant · per-request", sub: "hebbian rank-2 microlora. captures the trajectory. stamps an adapter over the router the moment feedback arrives. cheap, reversible, local. |scale|-weighted prioritized replay so high-impact transitions train more. lr floor via RS_LEARN_LR_MIN prevents decay freeze.", meta: "every turn" }
+      - { code: "02", name: "background · hourly", sub: "k-means++ over recent trajectories extracts patterns. retrains base-lora on the router across full quality band (no dead-band). summarizes reasoning into the bank. seeds instant replay with high-quality centroids. router weights persisted after each run.", meta: "RS_LEARN_BG_INTERVAL_SEC" }
+      - { code: "03", name: "deep · z-score boundary", sub: "ewc++ with online fisher information, ema decay 0.999, λ default 2000. boundary detection from loss-delta triggers consolidation. on boundary fire: deep.consolidate(adapter, flat, grads) runs before reset_adapter() so old skills survive new ones. fisher + params_snapshot persist across restarts.", meta: "always wired" }
+
+  - id: layers
+    kind: rows
+    label: "layers // what's inside"
+    heading: "seven layers, one binary."
+    body: "the orchestrator is assembled from small, inspectable subsystems. each one registers itself with the debug server on construction. nothing is hidden behind a process boundary."
+    items:
+      - { code: "store", name: "libsql · vector + graph + fts5", sub: "single-file backing store. semantic dedup at cosine ≥ 0.95 prevents hnsw bloat.", meta: "single file · zero services" }
+      - { code: "memory", name: "hnsw-equivalent ann · m=32 level sampling", sub: "libsql vector_top_k. node_count exposed live. multi-seed top-3 subgraph expansion.", meta: "vector_top_k" }
+      - { code: "attn", name: "8-head graph attention · edge features", sub: "relation one-hot + recency decay + weight. nudge_relation(rel, signed_quality) on feedback amplifies winning paths.", meta: "alpha=0.05" }
+      - { code: "router", name: "fastgrnn · 90% sparse · rank-8 low-rank", sub: "softmax over acp targets + context bucket + temperature + top-p + confidence. per-target ema observability. weights persist across restarts.", meta: "softmax" }
+      - { code: "bank", name: "reasoning bank · acp-summarized", sub: "pattern store · dpo source. record_outcome(ids, quality) updates success_rate via ema (alpha=0.2) on every feedback.", meta: "ema feedback" }
+      - { code: "fed", name: "federated · ephemeral + coordinator", sub: "50k quality-filtered pool for cross-session aggregation.", meta: "quality-filtered" }
+      - { code: "export", name: "safetensors · patterns.jsonl · dpo", sub: "router weights as safetensors. preferences.jsonl for dpo. huggingface push out of the box.", meta: "huggingface" }
+
+  - id: debug
+    kind: cli
+    label: "observability // live"
+    heading: "every subsystem, queryable."
+    body: "the http debug server binds on 127.0.0.1:7878 at startup. every subsystem registers an endpoint. no restart required to inspect state."
+    lines:
+      - { kind: "cmt", text: "registry of subsystems" }
+      - { kind: "cmd", text: "curl http://127.0.0.1:7878/debug" }
+      - { kind: "cmt", text: "store · table counts, vec index" }
+      - { kind: "cmd", text: "curl http://127.0.0.1:7878/debug/store" }
+      - { kind: "cmt", text: "memory · episodes, entities, edges, node_count" }
+      - { kind: "cmd", text: "curl http://127.0.0.1:7878/debug/memory" }
+      - { kind: "cmt", text: "router · weights, version, trained, per_target ema" }
+      - { kind: "cmd", text: "curl http://127.0.0.1:7878/debug/router" }
+      - { kind: "cmt", text: "attention · head stats, subgraph size" }
+      - { kind: "cmd", text: "curl http://127.0.0.1:7878/debug/attention" }
+      - { kind: "cmt", text: "background loop · k-means status, last run" }
+      - { kind: "cmd", text: "curl http://127.0.0.1:7878/debug/learn-bg" }
+      - { kind: "cmt", text: "deep loop · fisher ema, boundary stats, consolidation history" }
+      - { kind: "cmd", text: "curl http://127.0.0.1:7878/debug/deep" }
+      - { kind: "cmt", text: "reasoning bank · size, success_rate, last summary" }
+      - { kind: "cmd", text: "curl http://127.0.0.1:7878/debug/reasoning" }
+      - { kind: "cmd", text: "curl http://127.0.0.1:7878/debug/federated" }
+      - { kind: "cmd", text: "curl http://127.0.0.1:7878/debug/acp" }
+      - { kind: "cmd", text: "curl http://127.0.0.1:7878/debug/rs-search" }
+
+  - id: numbers
+    kind: stats
+    label: "numbers // receipts"
+    heading: "by the count."
+    items:
+      - { value: "1", label: "single binary" }
+      - { value: "6", label: "ci targets · native" }
+      - { value: "8", label: "attention heads" }
+      - { value: "3", label: "learning loops" }
+      - { value: "90%", label: "router sparsity" }
+      - { value: "0.999", label: "fisher ema decay" }
+      - { value: "50k", label: "federated pool" }
+      - { value: "2000", label: "ewc λ default" }
+      - { value: "0.95", label: "memory dedup cosine" }
+      - { value: "200", label: "line per-file cap" }
+
+  - id: ci
+    kind: rows
+    label: "ci // matrix"
+    heading: "six targets. all native. all green."
+    body: "cargo build + test across six native targets on every push. no cross-compilation shenanigans. aarch64 linux and windows run pure-rust fallbacks where simsimd wasn't available. binaries are uploaded to gh releases inside the same workflow that cuts the tag."
+    items:
+      - { code: "✓", name: "x86_64-linux", sub: "native cargo build + test", meta: "green" }
+      - { code: "✓", name: "x86_64-windows", sub: "native cargo build + test", meta: "green" }
+      - { code: "✓", name: "x86_64-macos", sub: "native cargo build + test", meta: "green" }
+      - { code: "✓", name: "aarch64-macos", sub: "native cargo build + test", meta: "green" }
+      - { code: "✓", name: "aarch64-linux", sub: "pure-rust simsimd fallback", meta: "green" }
+      - { code: "✓", name: "aarch64-windows", sub: "pure-rust simsimd fallback", meta: "green" }
+
+  - id: env
+    kind: rows
+    label: "env // configuration"
+    heading: "knobs that matter."
+    body: "rs-learn boots with sane defaults. these are the dials worth knowing."
+    items:
+      - { code: "RS_LEARN_BACKEND", name: "acp | claude-cli", sub: "force a backend. unset = auto (acp if RS_LEARN_ACP_COMMAND set, else claude-cli).", meta: "auto" }
+      - { code: "RS_LEARN_ACP_COMMAND", name: "stdio acp launch line", sub: "e.g. \"opencode acp\", \"kilo acp\", \"gemini-cli acp\", \"codex acp\".", meta: "unset" }
+      - { code: "RS_LEARN_CLAUDE_MODEL", name: "haiku | sonnet | opus", sub: "selects model when claude-cli backend is active.", meta: "haiku" }
+      - { code: "RS_LEARN_BG_INTERVAL_SEC", name: "background loop cadence", sub: "opt-in. set to N seconds to enable hourly-style k-means retrain.", meta: "off" }
+      - { code: "RS_LEARN_LR_MIN", name: "instant loop lr floor", sub: "prevents adapter decay freeze. default 1e-3.", meta: "1e-3" }
+      - { code: "RS_LEARN_ACP_LIVE", name: "live e2e mode", sub: "set to 1 to spawn the real acp agent. otherwise the orchestrator uses the stub handler for tests.", meta: "0" }
+
+  - id: footnote
+    kind: quote
+    label: "footnote // why"
+    heading: "stateless agents forget."
+    body: "rs-learn remembers — episodes, entities, relations, preferences, failures. then it learns from what it remembers. three clocks, one store, one binary. pure rust. we were here first."

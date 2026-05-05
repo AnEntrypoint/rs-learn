@@ -72,6 +72,61 @@ function Quickstart() {
   });
 }
 
+function Section(sec, idx) {
+  if (!sec || !sec.kind) return null;
+  const title = sec.label || sec.heading || ('section ' + idx);
+  const headChildren = [];
+  if (sec.heading) headChildren.push(C.Heading({ level: 2, style: 'margin:0 0 6px 0', children: sec.heading }));
+  if (sec.body) headChildren.push(h('p', { style: 'margin:0 0 12px 0;color:var(--panel-text-2);max-width:72ch' }, sec.body));
+
+  let bodyNode = null;
+  if (sec.kind === 'rows' && sec.items && sec.items.length) {
+    bodyNode = h('div', {},
+      ...sec.items.map((it, i) => C.RowLink({
+        key: 's' + idx + 'r' + i,
+        code: it.code || String(i + 1).padStart(2, '0'),
+        title: it.name || it.title || '',
+        sub: it.sub || it.desc || '',
+        meta: it.meta || '',
+        href: it.href || '#'
+      }))
+    );
+  } else if (sec.kind === 'cli' && sec.lines && sec.lines.length) {
+    bodyNode = h('div', { style: 'padding:16px 22px' },
+      ...sec.lines.map((l, i) => h('div', { key: 's' + idx + 'l' + i, class: 'cli' },
+        h('span', { class: 'prompt' }, l.kind === 'cmt' ? '#' : '$'),
+        h('span', { class: 'cmd' }, l.text)
+      ))
+    );
+  } else if (sec.kind === 'stats' && sec.items && sec.items.length) {
+    bodyNode = h('div', { style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;padding:16px 22px' },
+      ...sec.items.map((it, i) => h('div', { key: 's' + idx + 'n' + i, style: 'padding:12px;background:var(--panel-tone-1,rgba(0,0,0,0.04));border-radius:8px' },
+        h('div', { style: 'font-family:var(--ff-mono,JetBrains Mono,monospace);font-size:24px;font-weight:700;color:var(--ink)' }, it.value),
+        h('div', { style: 'font-size:12px;color:var(--panel-text-2);margin-top:4px' }, it.label)
+      ))
+    );
+  } else if (sec.kind === 'quote') {
+    bodyNode = h('div', { style: 'padding:8px 22px 20px' },
+      h('p', { style: 'margin:0;font-size:18px;line-height:1.5;color:var(--ink);max-width:64ch' }, sec.body || '')
+    );
+  }
+
+  return C.Panel({
+    key: 'sec' + idx,
+    title: title,
+    style: 'margin:8px',
+    children: h('div', { id: sec.id || undefined },
+      headChildren.length ? h('div', { style: 'padding:16px 22px 0' }, ...headChildren) : null,
+      bodyNode
+    )
+  });
+}
+
+function Sections() {
+  if (!home || !home.sections || !home.sections.length) return null;
+  return h('div', {}, ...home.sections.map((s, i) => Section(s, i)));
+}
+
 function Examples() {
   if (!home || !home.examples || !home.examples.items || !home.examples.items.length) return null;
   const rows = home.examples.items.map((it, i) => C.RowLink({
@@ -115,6 +170,7 @@ const App = C.AppShell({
     Hero(),
     Features(),
     Quickstart(),
+    Sections(),
     Examples()
   ),
   status: Footer()
