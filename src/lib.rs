@@ -16,7 +16,7 @@ pub mod cache;
 pub mod spine;
 pub mod db_path;
 pub mod llm_gate;
-pub use db_path::resolve_db_path;
+pub use db_path::{resolve_db_path, resolve_db_path_for};
 
 pub use acp::AcpClient;
 pub use backend::{AgentBackend, ClaudeCliClient};
