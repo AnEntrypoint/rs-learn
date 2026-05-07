@@ -8,6 +8,7 @@ use rs_learn::graph::search::{SearchConfig, Searcher};
 use rs_learn::learn::instant::FeedbackPayload;
 use rs_learn::orchestrator::{Orchestrator, QueryOpts};
 use rs_learn::store::Store;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -15,23 +16,32 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let cmd = args.first().map(String::as_str).unwrap_or("ready");
+
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    let (root, discipline, rest) = strip_global_flags(raw);
+
+    if std::env::var_os("RS_LEARN_DB_PATH").is_none() {
+        let resolved = rs_learn::resolve_db_path_for(root.as_deref(), discipline.as_deref());
+        std::env::set_var("RS_LEARN_DB_PATH", resolved);
+    }
+
+    let cmd = rest.first().map(String::as_str).unwrap_or("ready");
     match cmd {
         "ready" | "start" | "" => {
             let _ = Orchestrator::new_default().await?;
             println!("rs-learn ready");
         }
-        "query" => cmd_query(&args[1..]).await?,
-        "feedback" => cmd_feedback(&args[1..]).await?,
-        "debug" => cmd_debug(&args[1..]).await?,
-        "add" => cmd_add(&args[1..]).await?,
-        "search" => cmd_search(&args[1..]).await?,
-        "forget" => cmd_forget(&args[1..]).await?,
-        "episodes" => cmd_episodes(&args[1..]).await?,
+        "query" => cmd_query(&rest[1..]).await?,
+        "feedback" => cmd_feedback(&rest[1..]).await?,
+        "debug" => cmd_debug(&rest[1..]).await?,
+        "info" => cmd_info().await?,
+        "add" => cmd_add(&rest[1..]).await?,
+        "search" => cmd_search(&rest[1..]).await?,
+        "forget" => cmd_forget(&rest[1..]).await?,
+        "episodes" => cmd_episodes(&rest[1..]).await?,
         "clear" => cmd_clear().await?,
         "build-communities" => cmd_build_communities().await?,
-        "serve" => cmd_serve(&args[1..]).await?,
+        "serve" => cmd_serve(&rest[1..]).await?,
         "mcp" => cmd_mcp().await?,
         "help" | "-h" | "--help" => { print_help(false); }
         "version" | "-V" | "--version" => {
@@ -46,10 +56,41 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn strip_global_flags(args: Vec<String>) -> (Option<PathBuf>, Option<String>, Vec<String>) {
+    let mut root: Option<PathBuf> = None;
+    let mut discipline: Option<String> = None;
+    let mut rest: Vec<String> = Vec::with_capacity(args.len());
+    let mut it = args.into_iter().peekable();
+    let mut consuming_globals = true;
+    while let Some(a) = it.next() {
+        if consuming_globals {
+            match a.as_str() {
+                "--root" => { root = it.next().map(PathBuf::from); continue; }
+                s if s.starts_with("--root=") => { root = Some(PathBuf::from(&s[7..])); continue; }
+                "--discipline" => { discipline = it.next(); continue; }
+                s if s.starts_with("--discipline=") => { discipline = Some(s[13..].to_string()); continue; }
+                _ => { consuming_globals = false; }
+            }
+        }
+        rest.push(a);
+    }
+    (root, discipline, rest)
+}
+
+async fn cmd_info() -> anyhow::Result<()> {
+    let path = std::env::var("RS_LEARN_DB_PATH").unwrap_or_else(|_| rs_learn::resolve_db_path());
+    println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "db_path": path,
+    }))?);
+    Ok(())
+}
+
 fn print_help(to_stderr: bool) {
     let lines = [
-        "rs-learn <subcommand> [args]",
+        "rs-learn [--root <dir>] [--discipline <name>] <subcommand> [args]",
         "  ready | start               boot orchestrator and exit",
+        "  info                        print resolved db_path and version (JSON)",
         "  query <text>                run one query through the orchestrator (prints JSON)",
         "  feedback <request_id> <quality 0..1> [signal]   record quality for a prior query",
         "  debug [subsystem]           dump /debug snapshot (all or one subsystem)",
