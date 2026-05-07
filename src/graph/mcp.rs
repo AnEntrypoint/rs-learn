@@ -11,6 +11,8 @@ use super::ingest::Ingestor;
 use super::llm::LlmJson;
 use super::sagas::SagaOps;
 use super::search::{Reranker, SearchAllConfig, SearchConfig, Searcher};
+use super::store_cache;
+use std::path::PathBuf;
 
 pub struct McpServer {
     pub store: Arc<Store>,
@@ -29,6 +31,22 @@ impl McpServer {
         let community_ops = Arc::new(CommunityOps::new(store.clone(), embedder.clone(), llm.clone()));
         let saga_ops = Arc::new(SagaOps::new(store.clone(), llm.clone()));
         Arc::new(Self { store, embedder, ingestor, searcher, community_ops, saga_ops, llm })
+    }
+
+    async fn resolve(&self, args: &Value) -> Result<(Arc<Store>, Arc<Ingestor>, Arc<Searcher>, Arc<CommunityOps>)> {
+        let project_root = args.get("project_root").and_then(|v| v.as_str());
+        let discipline = args.get("discipline").and_then(|v| v.as_str());
+        let disc_norm = discipline.and_then(|s| if s.is_empty() { None } else { Some(s) });
+        if project_root.is_none() && disc_norm.is_none() {
+            return Ok((self.store.clone(), self.ingestor.clone(), self.searcher.clone(), self.community_ops.clone()));
+        }
+        let root = project_root.map(PathBuf::from);
+        let store = store_cache::resolve(root.as_deref(), disc_norm).await?;
+        let llm = self.llm.clone();
+        let ingestor = Ingestor::new(store.clone(), self.embedder.clone(), llm.clone());
+        let searcher = Arc::new(Searcher::with_llm(store.clone(), self.embedder.clone(), llm.clone()));
+        let community_ops = Arc::new(CommunityOps::new(store.clone(), self.embedder.clone(), llm));
+        Ok((store, ingestor, searcher, community_ops))
     }
 
     pub async fn serve_stdio(self: Arc<Self>) -> Result<()> {
@@ -78,6 +96,7 @@ impl McpServer {
     }
 
     async fn dispatch(&self, tool: &str, args: Value) -> Result<Value> {
+        let (store, ingestor, searcher, community_ops) = self.resolve(&args).await?;
         match tool {
             "add_episode" => {
                 let content = str_arg(&args, "content")?;
@@ -88,7 +107,7 @@ impl McpServer {
                 let edge_types = args.get("edge_types").cloned();
                 if let Some(g) = &group_id { super::validation::validate_group_id(g)?; }
                 super::validation::validate_content(&content)?;
-                let r = self.ingestor.add_episode_with(&content, &source, ref_time.as_deref(), group_id.as_deref(), entity_types.as_deref(), edge_types.as_ref()).await?;
+                let r = ingestor.add_episode_with(&content, &source, ref_time.as_deref(), group_id.as_deref(), entity_types.as_deref(), edge_types.as_ref()).await?;
                 Ok(json!({
                     "episode_id": r.episode_id,
                     "nodes": r.node_count,
@@ -104,7 +123,7 @@ impl McpServer {
                 let items: Vec<super::ingest::BulkEpisode> = arr.iter()
                     .filter_map(|v| serde_json::from_value(v.clone()).ok())
                     .collect();
-                let rs = self.ingestor.add_episode_bulk(items, group_id.as_deref()).await?;
+                let rs = ingestor.add_episode_bulk(items, group_id.as_deref()).await?;
                 Ok(json!({
                     "count": rs.len(),
                     "episode_ids": rs.iter().map(|r| r.episode_id.clone()).collect::<Vec<_>>(),
@@ -113,7 +132,7 @@ impl McpServer {
             "get_episodes" => {
                 let group_id = args.get("group_id").and_then(|s| s.as_str()).map(String::from);
                 let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
-                let eps = self.ingestor.get_episodes(group_id.as_deref(), limit).await?;
+                let eps = ingestor.get_episodes(group_id.as_deref(), limit).await?;
                 Ok(json!({ "episodes": eps }))
             }
             "add_triplet" => {
@@ -127,30 +146,30 @@ impl McpServer {
                 if let Some(g) = &group_id { super::validation::validate_group_id(g)?; }
                 let src = Entity { id: src_id, name: src_name.clone(), entity_type: None, embedding: self.embedder.embed(&src_name).ok(), group_id: group_id.clone() };
                 let dst = Entity { id: dst_id, name: dst_name.clone(), entity_type: None, embedding: self.embedder.embed(&dst_name).ok(), group_id: group_id.clone() };
-                let eid = self.ingestor.add_triplet(src, dst, &relation, &fact, group_id.as_deref()).await?;
+                let eid = ingestor.add_triplet(src, dst, &relation, &fact, group_id.as_deref()).await?;
                 Ok(json!({ "edge_id": eid }))
             }
-            "search" => self.do_search_all(args).await,
-            "search_nodes" => self.do_search(args, "nodes").await,
-            "search_facts" => self.do_search(args, "facts").await,
-            "search_episodes" => self.do_search(args, "episodes").await,
-            "search_communities" => self.do_search(args, "communities").await,
-            "get_node" => self.get_single("nodes", args).await,
-            "get_edge" => self.get_single("edges", args).await,
-            "get_episode" => self.get_single("episodes", args).await,
+            "search" => do_search_all(&searcher, args).await,
+            "search_nodes" => do_search(&searcher, args, "nodes").await,
+            "search_facts" => do_search(&searcher, args, "facts").await,
+            "search_episodes" => do_search(&searcher, args, "episodes").await,
+            "search_communities" => do_search(&searcher, args, "communities").await,
+            "get_node" => get_single(&store, "nodes", args).await,
+            "get_edge" => get_single(&store, "edges", args).await,
+            "get_episode" => get_single(&store, "episodes", args).await,
             "clear_graph" => {
                 let gids: Option<Vec<String>> = args.get("group_ids").and_then(|v| v.as_array())
                     .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect());
                 if let Some(g) = &gids { for x in g { super::validation::validate_group_id(x)?; } }
-                self.ingestor.clear_graph(gids.as_deref()).await?;
+                ingestor.clear_graph(gids.as_deref()).await?;
                 Ok(json!({ "status": "ok" }))
             }
             "build_communities" => {
                 let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
-                let r = if force { self.community_ops.build_communities().await? } else { self.community_ops.build_communities_if_dirty().await? };
+                let r = if force { community_ops.build_communities().await? } else { community_ops.build_communities_if_dirty().await? };
                 Ok(json!({ "communities": r.community_count, "members": r.member_count }))
             }
-            "remove_communities" => { self.community_ops.remove_communities().await?; Ok(json!({ "status": "ok" })) }
+            "remove_communities" => { community_ops.remove_communities().await?; Ok(json!({ "status": "ok" })) }
             "create_saga" => {
                 let name = str_arg(&args, "name")?;
                 let id = self.saga_ops.create_saga(&name).await?;
@@ -161,79 +180,80 @@ impl McpServer {
                 let s = self.saga_ops.summarize_saga(&saga_id).await?;
                 Ok(json!({ "summary": s }))
             }
-            "delete_episode" => { self.delete_by_id("episodes", args).await?; Ok(json!({ "status": "ok" })) }
-            "delete_entity_edge" => { self.delete_by_id("edges", args).await?; Ok(json!({ "status": "ok" })) }
-            "delete_entity_node" => { self.delete_by_id("nodes", args).await?; Ok(json!({ "status": "ok" })) }
+            "delete_episode" => { delete_by_id(&store, "episodes", args).await?; Ok(json!({ "status": "ok" })) }
+            "delete_entity_edge" => { delete_by_id(&store, "edges", args).await?; Ok(json!({ "status": "ok" })) }
+            "delete_entity_node" => { delete_by_id(&store, "nodes", args).await?; Ok(json!({ "status": "ok" })) }
             "debug_state" => Ok(crate::observability::dump()),
             other => Err(anyhow::anyhow!("unknown tool '{other}'")),
         }
     }
 
-    async fn do_search_all(&self, args: Value) -> Result<Value> {
-        let query = str_arg(&args, "query")?;
-        let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
-        let mut all = SearchAllConfig::all_defaults(limit);
-        if let Some(ids) = args.get("center_node_ids").and_then(|v| v.as_array()) {
-            all.center_node_ids = ids.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+}
+
+async fn do_search_all(searcher: &Arc<Searcher>, args: Value) -> Result<Value> {
+    let query = str_arg(&args, "query")?;
+    let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+    let mut all = SearchAllConfig::all_defaults(limit);
+    if let Some(ids) = args.get("center_node_ids").and_then(|v| v.as_array()) {
+        all.center_node_ids = ids.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+    }
+    let build = |v: Option<&Value>, base_limit: usize| -> Result<Option<SearchConfig>> {
+        let Some(obj) = v.and_then(|v| v.as_object()) else { return Ok(None); };
+        let mut c = SearchConfig { limit: obj.get("limit").and_then(|v| v.as_u64()).map(|n| n as usize).unwrap_or(base_limit), ..Default::default() };
+        if let Some(r) = obj.get("reranker").and_then(|v| v.as_str()) {
+            c.reranker = parse_reranker_str(r)?;
         }
-        let build = |v: Option<&Value>, base_limit: usize| -> Result<Option<SearchConfig>> {
-            let Some(obj) = v.and_then(|v| v.as_object()) else { return Ok(None); };
-            let mut c = SearchConfig { limit: obj.get("limit").and_then(|v| v.as_u64()).map(|n| n as usize).unwrap_or(base_limit), ..Default::default() };
-            if let Some(r) = obj.get("reranker").and_then(|v| v.as_str()) {
-                c.reranker = parse_reranker_str(r)?;
-            }
-            if let Some(v) = obj.get("use_vector").and_then(|v| v.as_bool()) { c.use_vector = v; }
-            if let Some(v) = obj.get("use_fts").and_then(|v| v.as_bool()) { c.use_fts = v; }
-            if let Some(v) = obj.get("mmr_lambda").and_then(|v| v.as_f64()) { c.mmr_lambda = v as f32; }
-            Ok(Some(c))
-        };
-        if let Some(c) = build(args.get("nodes"), limit)? { all.nodes = Some(c); }
-        if let Some(c) = build(args.get("edges"), limit)? { all.edges = Some(c); }
-        if let Some(c) = build(args.get("episodes"), limit)? { all.episodes = Some(c); }
-        if let Some(c) = build(args.get("communities"), limit)? { all.communities = Some(c); }
-        let r = self.searcher.search_all_cfg(&query, &all).await?;
-        Ok(json!({
-            "nodes": r.nodes,
-            "edges": r.edges,
-            "episodes": r.episodes,
-            "communities": r.communities,
-        }))
-    }
+        if let Some(v) = obj.get("use_vector").and_then(|v| v.as_bool()) { c.use_vector = v; }
+        if let Some(v) = obj.get("use_fts").and_then(|v| v.as_bool()) { c.use_fts = v; }
+        if let Some(v) = obj.get("mmr_lambda").and_then(|v| v.as_f64()) { c.mmr_lambda = v as f32; }
+        Ok(Some(c))
+    };
+    if let Some(c) = build(args.get("nodes"), limit)? { all.nodes = Some(c); }
+    if let Some(c) = build(args.get("edges"), limit)? { all.edges = Some(c); }
+    if let Some(c) = build(args.get("episodes"), limit)? { all.episodes = Some(c); }
+    if let Some(c) = build(args.get("communities"), limit)? { all.communities = Some(c); }
+    let r = searcher.search_all_cfg(&query, &all).await?;
+    Ok(json!({
+        "nodes": r.nodes,
+        "edges": r.edges,
+        "episodes": r.episodes,
+        "communities": r.communities,
+    }))
+}
 
-    async fn do_search(&self, args: Value, scope: &str) -> Result<Value> {
-        let query = str_arg(&args, "query")?;
-        let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
-        let cfg = SearchConfig { limit, ..Default::default() };
-        let hits = match scope {
-            "nodes" => self.searcher.search_nodes(&query, &cfg).await?,
-            "facts" => self.searcher.search_facts(&query, &cfg).await?,
-            "episodes" => self.searcher.search_episodes(&query, &cfg).await?,
-            "communities" => self.searcher.search_communities(&query, &cfg).await?,
-            _ => vec![],
-        };
-        Ok(json!({ "hits": hits }))
-    }
+async fn do_search(searcher: &Arc<Searcher>, args: Value, scope: &str) -> Result<Value> {
+    let query = str_arg(&args, "query")?;
+    let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+    let cfg = SearchConfig { limit, ..Default::default() };
+    let hits = match scope {
+        "nodes" => searcher.search_nodes(&query, &cfg).await?,
+        "facts" => searcher.search_facts(&query, &cfg).await?,
+        "episodes" => searcher.search_episodes(&query, &cfg).await?,
+        "communities" => searcher.search_communities(&query, &cfg).await?,
+        _ => vec![],
+    };
+    Ok(json!({ "hits": hits }))
+}
 
-    async fn get_single(&self, table: &str, args: Value) -> Result<Value> {
-        let id = str_arg(&args, "id")?;
-        let sql = format!("SELECT * FROM {table} WHERE id = ?1");
-        let mut rows = self.store.conn.query(&sql, libsql::params![id]).await?;
-        let Some(row) = rows.next().await? else { return Ok(Value::Null); };
-        let n = row.column_count();
-        let mut map = serde_json::Map::new();
-        for i in 0..n {
-            let name = row.column_name(i).map(|s| s.to_string()).unwrap_or_else(|| format!("c{i}"));
-            if let Ok(v) = row.get_value(i) { map.insert(name, libsql_value_to_json(&v)); }
-        }
-        Ok(Value::Object(map))
+async fn get_single(store: &Arc<Store>, table: &str, args: Value) -> Result<Value> {
+    let id = str_arg(&args, "id")?;
+    let sql = format!("SELECT * FROM {table} WHERE id = ?1");
+    let mut rows = store.conn.query(&sql, libsql::params![id]).await?;
+    let Some(row) = rows.next().await? else { return Ok(Value::Null); };
+    let n = row.column_count();
+    let mut map = serde_json::Map::new();
+    for i in 0..n {
+        let name = row.column_name(i).map(|s| s.to_string()).unwrap_or_else(|| format!("c{i}"));
+        if let Ok(v) = row.get_value(i) { map.insert(name, libsql_value_to_json(&v)); }
     }
+    Ok(Value::Object(map))
+}
 
-    async fn delete_by_id(&self, table: &str, args: Value) -> Result<()> {
-        let id = str_arg(&args, "id")?;
-        let sql = format!("DELETE FROM {table} WHERE id = ?1");
-        self.store.conn.execute(&sql, libsql::params![id]).await?;
-        Ok(())
-    }
+async fn delete_by_id(store: &Arc<Store>, table: &str, args: Value) -> Result<()> {
+    let id = str_arg(&args, "id")?;
+    let sql = format!("DELETE FROM {table} WHERE id = ?1");
+    store.conn.execute(&sql, libsql::params![id]).await?;
+    Ok(())
 }
 
 fn str_arg(args: &Value, key: &str) -> Result<String> {

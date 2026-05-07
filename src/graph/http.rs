@@ -14,7 +14,9 @@ use tower_http::cors::CorsLayer;
 use super::ingest::Ingestor;
 use super::llm::LlmJson;
 use super::search::{SearchConfig, SearchFilters, Searcher};
+use super::store_cache;
 use super::time::parse_iso_ms;
+use std::path::PathBuf;
 
 const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
 
@@ -26,11 +28,43 @@ pub struct HttpState {
     pub searcher: Arc<Searcher>,
 }
 
+#[derive(Deserialize, Default, Clone)]
+pub struct Scope {
+    #[serde(default)]
+    pub project_root: Option<String>,
+    #[serde(default)]
+    pub discipline: Option<String>,
+}
+
+impl Scope {
+    fn root_path(&self) -> Option<PathBuf> {
+        self.project_root.as_ref().map(PathBuf::from)
+    }
+    fn is_default(&self) -> bool {
+        self.project_root.is_none()
+            && self.discipline.as_deref().map(str::is_empty).unwrap_or(true)
+    }
+}
+
 impl HttpState {
     pub fn new(store: Arc<Store>, embedder: Arc<Embedder>, llm: Arc<LlmJson>) -> Self {
         let ingestor = Ingestor::new(store.clone(), embedder.clone(), llm.clone());
         let searcher = Arc::new(Searcher::with_llm(store.clone(), embedder.clone(), llm.clone()));
         Self { store, embedder, ingestor, searcher }
+    }
+
+    pub async fn resolve(&self, scope: &Scope) -> std::result::Result<(Arc<Store>, Arc<Ingestor>, Arc<Searcher>), Problem> {
+        if scope.is_default() {
+            return Ok((self.store.clone(), self.ingestor.clone(), self.searcher.clone()));
+        }
+        let root = scope.root_path();
+        let store = store_cache::resolve(root.as_deref(), scope.discipline.as_deref())
+            .await
+            .map_err(|e| ise(format!("store resolve: {e}")))?;
+        let llm = self.ingestor.llm.clone();
+        let ingestor = Ingestor::new(store.clone(), self.embedder.clone(), llm.clone());
+        let searcher = Arc::new(Searcher::with_llm(store.clone(), self.embedder.clone(), llm));
+        Ok((store, ingestor, searcher))
     }
 
     pub fn router(self) -> Router {
@@ -102,13 +136,16 @@ struct MessagesBody {
     entity_types: Option<String>,
     #[serde(default)]
     edge_types: Option<Value>,
+    #[serde(flatten)]
+    scope: Scope,
 }
 
 async fn post_messages(State(s): State<HttpState>, Json(body): Json<MessagesBody>) -> Result<Json<Value>, Problem> {
     let source = body.source.unwrap_or_else(|| "message".into());
     if let Some(g) = &body.group_id { super::validation::validate_group_id(g).map_err(|e| bad(e.to_string()))?; }
     super::validation::validate_content(&body.content).map_err(|e| bad(e.to_string()))?;
-    let res = s.ingestor.add_episode_with(
+    let (_store, ingestor, _searcher) = s.resolve(&body.scope).await?;
+    let res = ingestor.add_episode_with(
         &body.content, &source, body.reference_time.as_deref(), body.group_id.as_deref(),
         body.entity_types.as_deref(), body.edge_types.as_ref(),
     ).await.map_err(|e| ise(e.to_string()))?;
@@ -130,6 +167,8 @@ struct TripletBody {
     fact: String,
     #[serde(default)]
     group_id: Option<String>,
+    #[serde(flatten)]
+    scope: Scope,
 }
 
 async fn post_triplet(State(s): State<HttpState>, Json(body): Json<TripletBody>) -> Result<Json<Value>, Problem> {
@@ -139,7 +178,8 @@ async fn post_triplet(State(s): State<HttpState>, Json(body): Json<TripletBody>)
     let dst_emb = s.embedder.embed(&body.dst_name).ok();
     let src = Entity { id: body.src_id, name: body.src_name, entity_type: None, embedding: src_emb, group_id: body.group_id.clone() };
     let dst = Entity { id: body.dst_id, name: body.dst_name, entity_type: None, embedding: dst_emb, group_id: body.group_id.clone() };
-    let eid = s.ingestor.add_triplet(src, dst, &body.relation, &body.fact, body.group_id.as_deref()).await.map_err(|e| ise(e.to_string()))?;
+    let (_store, ingestor, _searcher) = s.resolve(&body.scope).await?;
+    let eid = ingestor.add_triplet(src, dst, &body.relation, &body.fact, body.group_id.as_deref()).await.map_err(|e| ise(e.to_string()))?;
     Ok(Json(json!({ "edge_id": eid })))
 }
 
@@ -150,6 +190,8 @@ struct EntityNodeBody {
     r#type: Option<String>,
     #[serde(default)]
     group_id: Option<String>,
+    #[serde(flatten)]
+    scope: Scope,
 }
 
 async fn post_entity_node(State(s): State<HttpState>, Json(body): Json<EntityNodeBody>) -> Result<Json<Value>, Problem> {
@@ -168,7 +210,8 @@ async fn post_entity_node(State(s): State<HttpState>, Json(body): Json<EntityNod
         group_id: body.group_id,
         created_at: None,
     };
-    s.store.insert_node(&row).await.map_err(|e| ise(e.to_string()))?;
+    let (store, _ingestor, _searcher) = s.resolve(&body.scope).await?;
+    store.insert_node(&row).await.map_err(|e| ise(e.to_string()))?;
     Ok(Json(json!({ "id": id })))
 }
 
@@ -224,9 +267,12 @@ struct ForgetBody {
     hard: bool,
     #[serde(default)]
     limit: Option<usize>,
+    #[serde(flatten)]
+    scope: Scope,
 }
 
 async fn post_forget(State(s): State<HttpState>, Json(body): Json<ForgetBody>) -> Result<Json<Value>, Problem> {
+    let (store, _ingestor, searcher) = s.resolve(&body.scope).await?;
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64).unwrap_or(0);
     let mut to_invalidate: Vec<String> = Vec::new();
@@ -235,7 +281,7 @@ async fn post_forget(State(s): State<HttpState>, Json(body): Json<ForgetBody>) -
         to_invalidate.extend(ids.iter().cloned());
     }
     if let Some(src) = body.source.as_deref() {
-        let mut rows = s.store.conn.query(
+        let mut rows = store.conn.query(
             "SELECT id FROM episodes WHERE source = ?1 AND (invalid_at IS NULL OR invalid_at = 0)",
             libsql::params![src.to_string()],
         ).await.map_err(|e| ise(e.to_string()))?;
@@ -245,7 +291,7 @@ async fn post_forget(State(s): State<HttpState>, Json(body): Json<ForgetBody>) -
     }
     if let Some(q) = body.query.as_deref() {
         let cfg = SearchConfig { limit: body.limit.unwrap_or(20), ..Default::default() };
-        let hits = s.searcher.search_episodes(q, &cfg).await.map_err(|e| ise(e.to_string()))?;
+        let hits = searcher.search_episodes(q, &cfg).await.map_err(|e| ise(e.to_string()))?;
         for h in hits {
             if let Some(id) = h.row.get("id").and_then(|v| v.as_str()) {
                 to_invalidate.push(id.to_string());
@@ -261,9 +307,9 @@ async fn post_forget(State(s): State<HttpState>, Json(body): Json<ForgetBody>) -
     let mut count = 0u64;
     for id in &to_invalidate {
         let r = if body.hard {
-            s.store.conn.execute("DELETE FROM episodes WHERE id = ?1", libsql::params![id.clone()]).await
+            store.conn.execute("DELETE FROM episodes WHERE id = ?1", libsql::params![id.clone()]).await
         } else {
-            s.store.conn.execute(
+            store.conn.execute(
                 "UPDATE episodes SET invalid_at = ?1 WHERE id = ?2 AND (invalid_at IS NULL OR invalid_at = 0)",
                 libsql::params![now, id.clone()],
             ).await
@@ -302,12 +348,16 @@ async fn get_episodes(State(s): State<HttpState>, Path(gid): Path<String>) -> Re
 struct ClearBody {
     #[serde(default)]
     group_ids: Option<Vec<String>>,
+    #[serde(flatten)]
+    scope: Scope,
 }
 
 async fn post_clear(State(s): State<HttpState>, body: Option<Json<ClearBody>>) -> Result<Json<Value>, Problem> {
-    let gids = body.and_then(|b| b.0.group_ids);
+    let body = body.map(|b| b.0).unwrap_or_default();
+    let gids = body.group_ids;
     if let Some(g) = &gids { for x in g { super::validation::validate_group_id(x).map_err(|e| bad(e.to_string()))?; } }
-    s.ingestor.clear_graph(gids.as_deref()).await.map_err(|e| ise(e.to_string()))?;
+    let (_store, ingestor, _searcher) = s.resolve(&body.scope).await?;
+    ingestor.clear_graph(gids.as_deref()).await.map_err(|e| ise(e.to_string()))?;
     Ok(Json(json!({ "status": "ok" })))
 }
 
@@ -330,6 +380,16 @@ struct SearchBody {
     communities: Option<ScopeBody>,
     #[serde(default)]
     center_node_ids: Vec<String>,
+    #[serde(default)]
+    project_root: Option<String>,
+    #[serde(default)]
+    discipline: Option<String>,
+}
+
+impl SearchBody {
+    fn scope_resolve(&self) -> Scope {
+        Scope { project_root: self.project_root.clone(), discipline: self.discipline.clone() }
+    }
 }
 
 #[derive(Deserialize, Clone)]
@@ -371,6 +431,8 @@ fn scope_body_to_cfg(sb: &ScopeBody, default_limit: usize) -> Result<SearchConfi
 
 async fn post_search(State(s): State<HttpState>, Json(body): Json<SearchBody>) -> Result<Json<Value>, Problem> {
     if body.query.trim().is_empty() { return Err(bad("query required")); }
+    let resolved = s.resolve(&body.scope_resolve()).await?;
+    let searcher = resolved.2;
     let cfg = SearchConfig {
         limit: body.limit.unwrap_or(10),
         as_of: body.as_of.as_deref().and_then(parse_iso_ms),
@@ -393,7 +455,7 @@ async fn post_search(State(s): State<HttpState>, Json(body): Json<SearchBody>) -
         apply(&mut all.edges, body.edges.as_ref())?;
         apply(&mut all.episodes, body.episodes.as_ref())?;
         apply(&mut all.communities, body.communities.as_ref())?;
-        let r = s.searcher.search_all_cfg(&body.query, &all).await.map_err(|e| ise(e.to_string()))?;
+        let r = searcher.search_all_cfg(&body.query, &all).await.map_err(|e| ise(e.to_string()))?;
         return Ok(Json(json!({
             "nodes": r.nodes,
             "edges": r.edges,
@@ -402,19 +464,20 @@ async fn post_search(State(s): State<HttpState>, Json(body): Json<SearchBody>) -
         })));
     }
     let hits = match scope {
-        "nodes" => s.searcher.search_nodes(&body.query, &cfg).await,
-        "facts" | "edges" => s.searcher.search_facts(&body.query, &cfg).await,
-        "episodes" => s.searcher.search_episodes(&body.query, &cfg).await,
-        "communities" => s.searcher.search_communities(&body.query, &cfg).await,
+        "nodes" => searcher.search_nodes(&body.query, &cfg).await,
+        "facts" | "edges" => searcher.search_facts(&body.query, &cfg).await,
+        "episodes" => searcher.search_episodes(&body.query, &cfg).await,
+        "communities" => searcher.search_communities(&body.query, &cfg).await,
         other => return Err(bad(format!("unknown scope '{other}'"))),
     }.map_err(|e| ise(e.to_string()))?;
     Ok(Json(json!({ "hits": hits })))
 }
 
 async fn post_get_memory(State(s): State<HttpState>, Json(body): Json<SearchBody>) -> Result<Json<Value>, Problem> {
+    let (_store, _ingestor, searcher) = s.resolve(&body.scope_resolve()).await?;
     let cfg = SearchConfig { limit: body.limit.unwrap_or(10), ..Default::default() };
-    let nodes = s.searcher.search_nodes(&body.query, &cfg).await.map_err(|e| ise(e.to_string()))?;
-    let facts = s.searcher.search_facts(&body.query, &cfg).await.map_err(|e| ise(e.to_string()))?;
+    let nodes = searcher.search_nodes(&body.query, &cfg).await.map_err(|e| ise(e.to_string()))?;
+    let facts = searcher.search_facts(&body.query, &cfg).await.map_err(|e| ise(e.to_string()))?;
     Ok(Json(json!({ "nodes": nodes, "facts": facts })))
 }
 
@@ -422,14 +485,17 @@ async fn post_get_memory(State(s): State<HttpState>, Json(body): Json<SearchBody
 struct BuildCommunitiesBody {
     #[serde(default)]
     force: bool,
+    #[serde(flatten)]
+    scope: Scope,
 }
 
 async fn post_build_communities(State(s): State<HttpState>, body: Option<Json<BuildCommunitiesBody>>) -> Result<Json<Value>, Problem> {
     use super::communities::CommunityOps;
-    let force = body.map(|b| b.0.force).unwrap_or(false);
+    let body = body.map(|b| b.0).unwrap_or_default();
+    let (store, _ingestor, _searcher) = s.resolve(&body.scope).await?;
     let llm = s.ingestor.llm.clone();
-    let ops = CommunityOps::new(s.store.clone(), s.embedder.clone(), llm);
-    let r = if force { ops.build_communities().await } else { ops.build_communities_if_dirty().await }
+    let ops = CommunityOps::new(store, s.embedder.clone(), llm);
+    let r = if body.force { ops.build_communities().await } else { ops.build_communities_if_dirty().await }
         .map_err(|e| ise(e.to_string()))?;
     Ok(Json(json!({ "communities": r.community_count, "members": r.member_count })))
 }

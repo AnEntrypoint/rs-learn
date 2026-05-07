@@ -14,3 +14,4 @@ pub mod time;
 pub mod text;
 pub mod validation;
 pub mod metrics;
+pub mod store_cache;
