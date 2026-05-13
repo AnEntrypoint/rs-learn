@@ -34,6 +34,13 @@ pub mod db_path;
 pub mod llm_gate;
 pub use db_path::{resolve_db_path, resolve_db_path_for};
 
+#[cfg(target_arch = "wasm32")]
+pub mod wasm_host;
+#[cfg(target_arch = "wasm32")]
+pub mod wasm_learn;
+#[cfg(target_arch = "wasm32")]
+pub use wasm_learn::{Learn, RecallHit};
+
 #[cfg(not(target_arch = "wasm32"))]
 pub use acp::AcpClient;
 #[cfg(not(target_arch = "wasm32"))]
