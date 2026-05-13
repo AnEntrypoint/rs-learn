@@ -14,8 +14,8 @@ extern "C" {
     ) -> u32;
     pub fn host_kv_query(ns_ptr: *const u8, ns_len: u32, query_ptr: *const u8, query_len: u32) -> u64;
     pub fn host_vec_search(query_ptr: *const u8, query_len: u32, k: u32) -> u64;
-    pub fn host_log(ptr: *const u8, len: u32);
-    pub fn host_now_ms() -> u64;
+    pub fn host_log(level: u32, msg_ptr: *const u8, msg_len: u32) -> u32;
+    pub fn host_now_ms() -> i64;
 }
 
 #[inline]
@@ -31,15 +31,14 @@ unsafe fn take_bytes(packed: u64) -> Vec<u8> {
         return Vec::new();
     }
     let slice = core::slice::from_raw_parts(ptr as *const u8, len as usize);
-    let owned = slice.to_vec();
-    owned
+    slice.to_vec()
 }
 
 pub fn log(msg: &str) {
-    unsafe { host_log(msg.as_ptr(), msg.len() as u32) }
+    let _ = unsafe { host_log(1, msg.as_ptr(), msg.len() as u32) };
 }
 
-pub fn now_ms() -> u64 {
+pub fn now_ms() -> i64 {
     unsafe { host_now_ms() }
 }
 
