@@ -61,8 +61,8 @@ pub fn from_env() -> Result<Arc<dyn AgentBackend>> {
         None => {}
     }
 
-    if is_port_reachable("127.0.0.1", 4800) {
-        tracing::info!("acptoapi detected on 127.0.0.1:4800, using as primary provider");
+    if is_endpoint_reachable() {
+        tracing::info!("acptoapi endpoint detected, using as primary provider");
         return Ok(Arc::new(OpenAiCompatClient::from_env()?) as Arc<dyn AgentBackend>);
     }
 
@@ -76,9 +76,15 @@ pub fn from_env() -> Result<Arc<dyn AgentBackend>> {
     }
 }
 
-fn is_port_reachable(host: &str, port: u16) -> bool {
+fn is_endpoint_reachable() -> bool {
     use std::net::TcpStream;
     use std::time::Duration;
+
+    let endpoint = std::env::var("RS_LEARN_LLM_ENDPOINT")
+        .or_else(|_| std::env::var("OPENAI_BASE_URL"))
+        .unwrap_or_else(|_| "http://127.0.0.1:4800".to_string());
+
+    let (host, port) = extract_host_port(&endpoint).unwrap_or(("127.0.0.1", 4800));
 
     let addr = format!("{}:{}", host, port);
     TcpStream::connect_timeout(
@@ -88,4 +94,20 @@ fn is_port_reachable(host: &str, port: u16) -> bool {
         Duration::from_millis(500),
     )
     .is_ok()
+}
+
+fn extract_host_port(url: &str) -> Option<(&str, u16)> {
+    let url_trimmed = url.trim_start_matches("http://").trim_start_matches("https://");
+
+    if let Some((host, port_str)) = url_trimmed.split_once(':') {
+        if let Ok(port) = port_str.parse::<u16>() {
+            return Some((host, port));
+        }
+    }
+
+    if let Some((host, _)) = url_trimmed.split_once('/') {
+        return Some((host, 80));
+    }
+
+    None
 }

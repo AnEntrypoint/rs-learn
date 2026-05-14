@@ -25,7 +25,8 @@ impl OpenAiCompatClient {
     }
 
     pub fn from_env() -> Result<Self> {
-        let base_url = std::env::var("OPENAI_BASE_URL")
+        let base_url = std::env::var("RS_LEARN_LLM_ENDPOINT")
+            .or_else(|_| std::env::var("OPENAI_BASE_URL"))
             .unwrap_or_else(|_| "http://127.0.0.1:4800".to_string());
         let model = std::env::var("OPENAI_MODEL").ok();
         let api_key = std::env::var("OPENAI_API_KEY").ok();
