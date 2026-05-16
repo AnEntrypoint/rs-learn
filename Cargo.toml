@@ -14,6 +14,7 @@ categories = ["command-line-utilities", "science", "asynchronous"]
 [lib]
 name = "rs_learn"
 path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
 
 [[bin]]
 name = "rs-learn"
