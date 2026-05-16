@@ -42,9 +42,7 @@ pub mod wasm_learn;
 pub use wasm_learn::{Learn, RecallHit};
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use acp::AcpClient;
-#[cfg(not(target_arch = "wasm32"))]
-pub use backend::{AgentBackend, ClaudeCliClient};
+pub use backend::AgentBackend;
 #[cfg(not(target_arch = "wasm32"))]
 pub use attention::Attention;
 #[cfg(not(target_arch = "wasm32"))]
