@@ -136,6 +136,10 @@ struct MessagesBody {
     entity_types: Option<String>,
     #[serde(default)]
     edge_types: Option<Value>,
+    #[serde(default)]
+    fire: bool,
+    #[serde(default)]
+    no_extract: bool,
     #[serde(flatten)]
     scope: Scope,
 }
@@ -145,10 +149,41 @@ async fn post_messages(State(s): State<HttpState>, Json(body): Json<MessagesBody
     if let Some(g) = &body.group_id { super::validation::validate_group_id(g).map_err(|e| bad(e.to_string()))?; }
     super::validation::validate_content(&body.content).map_err(|e| bad(e.to_string()))?;
     let (_store, ingestor, _searcher) = s.resolve(&body.scope).await?;
-    let res = ingestor.add_episode_with(
-        &body.content, &source, body.reference_time.as_deref(), body.group_id.as_deref(),
-        body.entity_types.as_deref(), body.edge_types.as_ref(),
-    ).await.map_err(|e| ise(e.to_string()))?;
+
+    if body.fire {
+        let task_id = uuid::Uuid::new_v4().to_string();
+        let content = body.content.clone();
+        let group_id = body.group_id.clone();
+        let reference_time = body.reference_time.clone();
+        let entity_types = body.entity_types.clone();
+        let edge_types = body.edge_types.clone();
+        let no_extract = body.no_extract;
+        let tid = task_id.clone();
+        tokio::spawn(async move {
+            let r = if no_extract {
+                ingestor.add_episode_fast(&content, &source, group_id.as_deref()).await
+            } else {
+                ingestor.add_episode_with(
+                    &content, &source, reference_time.as_deref(), group_id.as_deref(),
+                    entity_types.as_deref(), edge_types.as_ref(),
+                ).await
+            };
+            if let Err(e) = r {
+                tracing::warn!(task_id = %tid, error = %e, "memorize-fire background ingest failed");
+            }
+        });
+        return Ok(Json(json!({ "task_id": task_id, "fire": true, "accepted": true })));
+    }
+
+    let res = if body.no_extract {
+        ingestor.add_episode_fast(&body.content, &source, body.group_id.as_deref())
+            .await.map_err(|e| ise(e.to_string()))?
+    } else {
+        ingestor.add_episode_with(
+            &body.content, &source, body.reference_time.as_deref(), body.group_id.as_deref(),
+            body.entity_types.as_deref(), body.edge_types.as_ref(),
+        ).await.map_err(|e| ise(e.to_string()))?
+    };
     Ok(Json(json!({
         "episode_id": res.episode_id,
         "nodes": res.node_count,
