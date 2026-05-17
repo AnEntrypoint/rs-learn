@@ -23,11 +23,21 @@ jobs:
         with:
           targets: wasm32-wasip1
 
+      - name: Ensure wasm32-wasip1 target installed
+        run: rustup target add wasm32-wasip1
+
       - uses: Swatinem/rust-cache@v2
         continue-on-error: true
         with:
           key: release-wasm32-wasip1
           cache-on-failure: true
+
+      - name: Force fresh dep resolution
+        shell: bash
+        continue-on-error: true
+        run: |
+          rm -f Cargo.lock
+          cargo generate-lockfile
 
       - name: Build WASM
         run: cargo build --release --target wasm32-wasip1 --no-default-features --features wasm --lib
