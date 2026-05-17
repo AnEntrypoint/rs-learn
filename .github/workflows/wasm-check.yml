@@ -1,0 +1,31 @@
+name: Wasm Check
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE', '.gitignore']
+  workflow_dispatch:
+
+concurrency:
+  group: wasm-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+
+      - name: Add wasm32-wasip1 target
+        run: rustup target add wasm32-wasip1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm-check-wasm32-wasip1
+
+      - name: Cargo check wasm32-wasip1
+        run: cargo check --target wasm32-wasip1 --no-default-features --features wasm --lib
