@@ -1,58 +1,8 @@
-#[cfg(not(target_arch = "wasm32"))]
-pub mod store;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod embeddings;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod memory;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod attention;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod router;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod acp;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod backend;
+#![cfg(target_arch = "wasm32")]
+
 pub mod errors;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod learn;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod orchestrator;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod observability;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod rs_search_bridge;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod graph;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod simd;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod cache;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod spine;
-pub mod db_path;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod llm_gate;
-pub use db_path::{resolve_db_path, resolve_db_path_for};
-
-#[cfg(target_arch = "wasm32")]
 pub mod wasm_host;
-#[cfg(target_arch = "wasm32")]
 pub mod wasm_learn;
-#[cfg(target_arch = "wasm32")]
-pub use wasm_learn::{Learn, RecallHit};
 
-#[cfg(not(target_arch = "wasm32"))]
-pub use backend::AgentBackend;
-#[cfg(not(target_arch = "wasm32"))]
-pub use attention::Attention;
-#[cfg(not(target_arch = "wasm32"))]
-pub use embeddings::Embedder;
 pub use errors::{LlmError, Result};
-#[cfg(not(target_arch = "wasm32"))]
-pub use memory::Memory;
-#[cfg(not(target_arch = "wasm32"))]
-pub use orchestrator::{Orchestrator, QueryResult};
-#[cfg(not(target_arch = "wasm32"))]
-pub use router::{Route, Router};
-#[cfg(not(target_arch = "wasm32"))]
-pub use store::Store;
+pub use wasm_learn::{Learn, RecallHit};

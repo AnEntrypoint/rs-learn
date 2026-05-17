@@ -4,30 +4,20 @@ version = "0.1.38"
 edition = "2021"
 authors = ["AnEntrypoint"]
 license = "MIT"
-description = "Continual-learning orchestrator over any ACP stdio agent: libsql memory, HNSW retrieval, graph attention, FastGRNN routing, three learning loops."
+description = "Continual-learning orchestrator (wasm32-wasip1): host-served kv + vector recall via plugkit."
 repository = "https://github.com/AnEntrypoint/rs-learn"
 homepage = "https://github.com/AnEntrypoint/rs-learn"
 readme = "README.md"
-keywords = ["acp", "llm", "orchestrator", "libsql", "continual-learning"]
-categories = ["command-line-utilities", "science", "asynchronous"]
+keywords = ["wasm", "llm", "memory", "recall", "plugkit"]
+categories = ["wasm"]
 
 [lib]
 name = "rs_learn"
 path = "src/lib.rs"
-crate-type = ["rlib", "cdylib"]
-
-[[bin]]
-name = "rs-learn"
-path = "src/main.rs"
-required-features = ["serve"]
-
-[[bin]]
-name = "rs-learn-validate"
-path = "src/bin/validate.rs"
+crate-type = ["cdylib"]
 
 [features]
 default = []
-serve = ["dep:axum", "dep:tower", "dep:tower-http"]
 wasm = []
 
 [dependencies]
@@ -35,37 +25,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 anyhow = "1"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "process", "io-util", "io-std", "sync", "time", "signal"] }
-bytes = "1"
-uuid = { version = "1", features = ["v4"] }
-rand = "0.8"
-blake3 = "1"
-futures = "0.3"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-arc-swap = "1"
-dashmap = "6"
-bytemuck = { version = "1", features = ["derive"] }
-async-trait = "0.1"
-pulp = "0.19"
-moka = { version = "0.12", features = ["future"] }
-rayon = "1"
-reqwest = { version = "0.12", features = ["json"] }
-
-libsql = { version = "0.9", default-features = false, features = ["core", "serde"] }
-
-axum = { version = "0.7", optional = true }
-tower = { version = "0.5", optional = true }
-tower-http = { version = "0.5", features = ["cors"], optional = true }
-
-rs-search = { git = "https://github.com/AnEntrypoint/rs-search", branch = "main", default-features = false, features = ["vector"] }
-
-[dev-dependencies]
-tempfile = "3"
-assert_cmd = "2"
-async-trait = "0.1"
 
 [profile.release]
 lto = "thin"
