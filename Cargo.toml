@@ -14,7 +14,7 @@ categories = ["wasm"]
 [lib]
 name = "rs_learn"
 path = "src/lib.rs"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []
