@@ -1,6 +1,6 @@
 use crate::errors::{LlmError, Result};
 
-pub const EMBED_DIM: usize = 768;
+pub const EMBED_DIM: usize = 384;
 
 pub struct Embedder;
 
