@@ -1,6 +1,5 @@
 [workspace]
-members = ["crates/wasm", "crates/embed"]
-default-members = ["crates/wasm"]
+members = ["crates/wasm"]
 resolver = "2"
 
 [profile.release]
