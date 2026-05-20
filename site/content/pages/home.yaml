@@ -160,4 +160,4 @@ sections:
     kind: quote
     label: "footnote // why"
     heading: "stateless agents forget."
-    body: "rs-learn remembers — episodes, entities, relations, preferences, failures. then it learns from what it remembers. three clocks, one store, one binary. pure rust. we were here first."
+    body: "drive rs-learn via memorize and recall — it stores episodes, entities, relations, preferences, failures, and updates its weights from the feedback you send. three clocks, one store, one binary. pure rust. we were here first."
