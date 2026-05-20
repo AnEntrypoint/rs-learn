@@ -28,4 +28,4 @@ jobs:
           key: wasm-check-wasm32-wasip1
 
       - name: Cargo check wasm32-wasip1
-        run: cargo check --target wasm32-wasip1 --no-default-features --features wasm --lib
+        run: cargo check --target wasm32-wasip1 --no-default-features --features wasm --lib -p rs-learn
