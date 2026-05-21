@@ -11,7 +11,7 @@ pub mod wasm_learn;
 pub mod pipeline;
 
 pub use errors::{LlmError, Result};
-pub use embeddings::{Embedder, EMBED_DIM};
+pub use embeddings::EMBED_DIM;
 
 #[cfg(target_arch = "wasm32")]
 pub use wasm_learn::{Learn, RecallHit};

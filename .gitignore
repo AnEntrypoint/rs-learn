@@ -1,17 +1,6 @@
 node_modules/
 *.db
 *.db-*
-.gm/prd-state.json
-.gm/rslearn-counter.json
-.gm/git-block-counter.json
-.gm/learning-state.md
-.gm/trajectory-drafts/
-.gm/ingest-drafts/
-.gm/needs-gm
-.gm/lastskill
-.gm/turn-state.json
-.gm/no-memorize-this-turn
-.gm/prd.paused.yml
 !.gm/rs-learn.db
 dist/
 target/
@@ -27,7 +16,6 @@ exports/
 .smoke-*.log
 .final-live*.log
 .llvm-*.log
-.code-search/
 .final-rs.log
 bin/rs-search*
 bin/*.exe
@@ -70,6 +58,4 @@ docs/data/
 .gm/rs-learn.db-wal
 # tracked: .gm/rs-learn.db, .gm/code-search/, AGENTS.md, .gm/prd.yml
 # <<< gm managed
-.gm/
 .codeinsight/
-rs-learn.db

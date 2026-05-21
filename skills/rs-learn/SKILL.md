@@ -153,7 +153,7 @@ Each `add` call (without `--no-extract`) creates:
 - **Episode** — raw content record (always)
 - **Nodes** — named entities extracted by LLM (people, concepts, files, APIs)
 - **Edges** — typed relations between nodes (USES, IMPLEMENTS, CONTRADICTS, etc.)
-- **Embeddings** — 768-dim vectors for HNSW retrieval (always)
+- **Embeddings** — 384-dim MiniLM-L6-v2 vectors for HNSW retrieval (always)
 
 ## Feedback loop
 
