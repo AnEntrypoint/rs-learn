@@ -1,167 +1,71 @@
 ---
 name: rs-learn
 description: >
-  Use this skill when the user wants persistent memory, knowledge retrieval, or
-  continual learning for their project — even if they don't explicitly say
-  "memory" or "graph". Activate when the user wants to: remember facts across
-  sessions, search previously ingested notes or docs, ask a question with
-  context from stored knowledge, ingest a file or document into a searchable
-  store, or wire an AI agent to a persistent knowledge base. Also activate when
-  replacing a file-based memory system (e.g. MEMORY.md + markdown files) with
-  a semantic, queryable alternative. Zero install: runs via `bun x rs-learn`
-  or `npx rs-learn`. Creates rs-learn.db in the project root.
-version: 0.1.37
+  Persistent memory and recall, wasm-only. Compiled to wasm32 and consumed by
+  rs-plugkit; no native CLI, no MCP server, no HTTP. Activate when the user
+  wants to remember facts across sessions, recall prior context mid-task, or
+  wire an agent to a queryable knowledge store. Dispatched via plugkit spool
+  verbs `recall` and `memorize`. Per-discipline isolation under
+  `<project>/.gm/disciplines/<name>/rs-learn.db`. Embeddings 384-dim
+  (MiniLM-L6-v2).
+version: 0.2.0
 ---
 
-# rs-learn — Continual-Learning Memory
+# rs-learn — wasm recall/memorize
 
-Zero-install persistent memory via `bun x rs-learn` or `npx rs-learn`. Creates `rs-learn.db` in the current directory — one file, no server, no daemon.
+Library, not a binary. Host-served through plugkit; the agent never invokes rs-learn directly.
 
-## Install this skill
+## Surface
 
-```bash
-bun x skills add AnEntrypoint/rs-learn
-# or
-npx skills add AnEntrypoint/rs-learn
+`recall` — semantic retrieval. Body `{query, limit?}`. Returns `[{id, text, score, namespace?}]`.
+
+`memorize` — append a fact. Body `{text, namespace}`. Embeds + persists.
+
+## Dispatch
+
+Write `.gm/exec-spool/in/recall/<N>.txt` or `.gm/exec-spool/in/memorize/<N>.txt`; read `.gm/exec-spool/out/<N>.json`. Synchronous from the agent's view.
+
+```
+recall      { "query": "terrain palette switching", "limit": 5 }
+memorize    { "text": "fact body", "namespace": "default" }
 ```
 
-## Command map
+## Auto-recall
 
-| Goal | Command |
-|---|---|
-| Persist a fact across sessions | `gm:memorize` agent (background, classifies); or `bun x rs-learn add … --no-extract` for synchronous capture |
-| Recall mid-task in a gm session | `exec:recall <query>` |
-| Search ingested content | `bun x rs-learn search "query" --scope episodes` (default scope returns node names only) |
-| Question answered via stored memory | `bun x rs-learn query` (needs `RS_LEARN_ACP_COMMAND`) |
-| Train the router on a prior query | `bun x rs-learn feedback <request_id> 0..1` |
-| Drop the store | `bun x rs-learn clear` |
-| Inspect state | `bun x rs-learn debug [subsystem]` |
+Prompt-submit derives a 2-6 word query from the user prompt and injects hits into the `instruction` response under `## Recall for this prompt`. No explicit dispatch required at turn start.
 
-`bun x rs-learn add` fits file/batch ingestion (`--file`, seeding). Per-turn agent work flows through `gm:memorize` so classification and AGENTS.md updates land together.
+## Discipline isolation
 
-## Workflow
+`@<name>` sigil in the request → reads and writes restricted to `<project>/.gm/disciplines/<name>/rs-learn.db`. Without a sigil: reads fan across `default` + every line of `<project>/.gm/disciplines/enabled.txt`, merge-ranked with `[discipline:<name>]` prefix; writes land in `default`.
 
-**Store a fact (fast, ~1s):**
-```bash
-bun x rs-learn add "terrain shader palette switching is forbidden" --source "tip" --no-extract
-```
+## Storage
 
-**Store a file (full graph extraction, 20-40s/chunk):**
-```bash
-bun x rs-learn add --file AGENTS.md --source "AGENTS.md" --chunk-size 2000
-```
+`<project>/.gm/rs-learn.db` (default discipline) or `<project>/.gm/disciplines/<name>/rs-learn.db`. Committed to git — shared across machines and sessions. Never add to `.gitignore`.
 
-**Retrieve — always use `--scope episodes` for full content:**
-```bash
-bun x rs-learn search "biome color blending" --scope episodes --limit 5
-```
+Each `memorize` persists: episode text, 384-dim embedding, namespace, timestamp. No graph extraction, no LLM call, no classifier in the wasm path — classification happens upstream in the `memorize` orchestrator verb before bytes hit this library.
 
-**Query through an ACP agent (requires `RS_LEARN_ACP_COMMAND`):**
-```bash
-bun x rs-learn query "why do terrain borders show stitch artifacts?"
-```
+## Constraints
 
-## Gotchas
+- wasm32 target only. Native build deleted post-`dd065b9`.
+- Host imports required: `host_kv_get`, `host_kv_put`, `host_kv_query`, `host_vec_search`, `host_log`, `host_now_ms`. Supplied by plugkit-wasm-wrapper.
+- `EMBED_DIM = 384`. Changing the embedder requires reindex.
+- No subcommands. No env vars. No `RS_LEARN_BACKEND`, no `RS_LEARN_ACP_COMMAND`, no `RS_LEARN_DB_PATH`.
+- Recall returns `[]` on empty index; never errors on cold start.
+- Memorize is append-only; dedup happens at query time via embedding similarity.
 
-- **Default search scope returns entity names only, not content.** `search "query"` (no `--scope`) searches nodes and returns entity names with no summary text — nearly useless for recall. Always pass `--scope episodes` when you want the actual stored text back.
-- **DB path resolution:** `.gm/rs-learn.db` under the current working directory by default. Falls back to `./rs-learn.db` only if `.gm/` cannot be created. Override with `RS_LEARN_DB_PATH`. Wrong CWD = separate disconnected database. Legacy `./rs-learn.db` is auto-migrated to `.gm/rs-learn.db` on first run.
-- **Sharing memory across sessions/machines:** commit `.gm/rs-learn.db` to your repo. Add `!.gm/rs-learn.db` to `.gitignore` (after broader `.gm/` and `*.db` rules). Pulling the repo brings every prior session's facts. Conflicts resolve by re-running `bun x rs-learn add` — the DB is write-mostly, append-shape friendly.
-- **`--no-extract` and `--scope episodes` are a pair.** Facts stored with `--no-extract` have no graph nodes — they only exist as episodes. They are invisible to `search` without `--scope episodes`.
-- **Shell arg-length limit.** `bun x rs-learn add "$(cat file)"` crashes bun when the file exceeds ~2048 chars. Use `--file <path>` or `--file -` (stdin) instead.
-- **LLM extraction is sequential per chunk.** With `--chunk-size 2000` and a 12KB file (~6 chunks), full extraction takes 4+ minutes. Use `--no-extract` when speed matters and graph structure is not needed.
-- **`RS_LEARN_BACKEND` defaults to `claude-cli`.** Entity extraction calls Claude via the local CLI. If `claude` is not in PATH, extraction silently fails and episodes store with zero nodes/edges.
+## Types
 
-## add subcommand
+```rust
+pub struct RecallHit {
+    pub id: String,
+    pub text: String,
+    pub score: f32,
+    pub namespace: Option<String>,
+}
 
-```bash
-bun x rs-learn add <text>                              # inline text
-bun x rs-learn add --file <path>                       # read from file
-bun x rs-learn add --file -                            # read from stdin
-bun x rs-learn add --file doc.md --chunk-size 2000     # chunk at paragraph boundaries
-bun x rs-learn add <text> --source "label"             # tag the source
-bun x rs-learn add <text> --no-extract                 # fast: skip LLM, episode+embedding only (~1s)
-```
-
-`--chunk-size N` splits on paragraph (`\n\n`) or line boundaries. Each chunk is a separate episode tagged `"source [i/total]"`. Each chunk triggers LLM entity+edge extraction — 20-40s per chunk.
-
-`--no-extract` skips all LLM calls. Episode stored with its embedding only. Use for short memory facts where `search --scope episodes` retrieval is sufficient and latency matters.
-
-## Search scopes
-
-```bash
-bun x rs-learn search "query" --scope episodes       # full episode content (use this for recall)
-bun x rs-learn search "query"                        # nodes/entities only (names, no content)
-bun x rs-learn search "query" --scope facts          # edges/relations
-bun x rs-learn search "query" --scope communities    # cluster summaries
-bun x rs-learn search "query" --limit 20
-```
-
-## Environment
-
-| Var | Default | Purpose |
-|-----|---------|---------|
-| `RS_LEARN_DB_PATH` | `.gm/rs-learn.db` (auto-created) | libsql file path; falls back to `./rs-learn.db` if `.gm/` not writable |
-| `RS_LEARN_ACP_COMMAND` | — | ACP stdio agent command (enables `query`) |
-| `RS_LEARN_BACKEND` | `claude-cli` | LLM backend for entity/edge extraction |
-
-### ACP agent examples
-
-```bash
-export RS_LEARN_ACP_COMMAND="kilo acp"
-export RS_LEARN_ACP_COMMAND="opencode acp"
-export RS_LEARN_ACP_COMMAND="claude --print -p"
-```
-
-## MCP server
-
-Expose rs-learn as an MCP tool so agents can call add/search without spawning subprocesses:
-
-```bash
-bun x rs-learn mcp   # start MCP stdio server
-```
-
-Wire into `.mcp.json`:
-```json
-{
-  "mcpServers": {
-    "rs-learn": {
-      "command": "bun",
-      "args": ["x", "rs-learn", "mcp"]
-    }
-  }
+pub struct Learn;
+impl Learn {
+    pub fn recall(&self, query: &str, limit: usize) -> Result<Vec<RecallHit>>;
+    pub fn memorize(&self, text: &str, namespace: &str) -> Result<()>;
 }
 ```
-
-## All subcommands
-
-| Command | Purpose |
-|---------|---------|
-| `add` | Ingest episode(s) — file, stdin, or inline text |
-| `search` | Semantic search over nodes/facts/episodes/communities |
-| `query` | Route query through ACP agent with memory context |
-| `feedback` | Record quality signal for a prior query (trains router) |
-| `debug` | Dump internal state (attention, memory, router, loops) |
-| `build-communities` | Run label propagation + summarize clusters |
-| `serve` | Start HTTP REST server (default port 8000) |
-| `mcp` | Start MCP stdio server |
-| `clear` | Drop all graph data |
-| `version` | Print version |
-
-## What gets stored
-
-Each `add` call (without `--no-extract`) creates:
-- **Episode** — raw content record (always)
-- **Nodes** — named entities extracted by LLM (people, concepts, files, APIs)
-- **Edges** — typed relations between nodes (USES, IMPLEMENTS, CONTRADICTS, etc.)
-- **Embeddings** — 384-dim MiniLM-L6-v2 vectors for HNSW retrieval (always)
-
-## Feedback loop
-
-After a `query`, record quality to train the router:
-
-```bash
-bun x rs-learn feedback <request_id> 0.9              # good response
-bun x rs-learn feedback <request_id> 0.2 "off topic"  # bad response
-```
-
-The router learns which ACP targets, temperatures, and context buckets produce high-quality answers over time.
