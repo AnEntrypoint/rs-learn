@@ -2,7 +2,6 @@
 
 use crate::dispatch::{dispatch_json, LearnSession};
 use crate::graph::host_kv_backend::HostKv;
-use core::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Mutex;
 
 static SESSION: Mutex<Option<LearnSession<HostKv>>> = Mutex::new(None);
@@ -47,7 +46,6 @@ pub extern "C" fn rs_learn_dispatch(ptr: *const u8, len: usize) -> u64 {
     }
     let session = guard.as_mut().unwrap();
     let resp = dispatch_json(session, bytes);
-    let _ = AtomicPtr::<u8>::new(core::ptr::null_mut());
     leak_bytes(resp)
 }
 
