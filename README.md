@@ -1,197 +1,121 @@
 # rs-learn
 
-A continual-learning orchestrator wrapped around any [Agent Client Protocol](https://agentclientprotocol.com) stdio agent. Gives an otherwise-stateless ACP agent persistent memory, adaptive routing, and learning loops that compress trajectories into reusable strategies and exportable LoRA / DPO training artefacts.
+Continual-learning primitives for LLM agents, shipped as a small wasm cdylib that runs inside a host providing key-value storage and vector search via a handful of imports.
 
-**Pure Rust binary.** Installable via npm/bun for zero-Rust workflows.
+This crate is the **algorithm layer**. The host (rs-plugkit, or anything that satisfies the imports) owns IO, scheduling, embedding, and agent transport. Together they provide LoRA optimization over time (in the spirit of ruvnet's sona) and a temporal knowledge graph (in the spirit of getzep's graphiti).
 
-Layers:
+## What's in the box
 
-- **libsql** vector + graph + FTS5 — single-file memory store, zero external services
-- **HNSW-equivalent** ANN over libsql `vector_top_k`, M=32 level sampling
-- **8-head graph attention** with edge features (relation one-hot + recency decay + weight)
-- **FastGRNN router** — sparse (90%) + low-rank (rank-8) matrices, softmax over ACP targets + context bucket + temperature + topP + confidence
-- **Learning loops**:
-  - **Instant (per-request, always on)** — trajectory capture + rank-2 MicroLoRA Hebbian adapter, norm-bounded to prevent runaway; LR floor via `RS_LEARN_LR_MIN` (default 1e-3) prevents decay freeze; `|scale|`-weighted prioritized replay so high-impact transitions train more; logits fed into router softmax on every route
-  - **Background (opt-in via `RS_LEARN_BG_INTERVAL_SEC=N`)** — k-means++ pattern extraction, LLM-summarized reasoning bank, softmax cross-entropy router retrain on full quality band (no dead-band), router weights persisted after each run
-  - **Deep (wired, z-score boundary)** — `DeepLoop` (EWC++ with online Fisher EMA decay 0.999 + z-score boundary detection) is live in the orchestrator; on every `feedback()` loss is recorded; on boundary fires, adapter weights are EWC-consolidated before `reset_adapter()` to prevent catastrophic forgetting
-- **Observability** — HTTP `/debug/<subsystem>` per subsystem, structured tracing
-- **Exports** — safetensors router weights, patterns.jsonl, preferences.jsonl (DPO), HF push
+Five algorithm cores, all native-Rust testable:
 
-## Install
+| Module | Algorithm | Inspiration |
+| --- | --- | --- |
+| `learn::instant_core` | Rank-2 Hebbian MicroLoRA adapter; norm-bound; LR floor; `\|scale\|`-weighted prioritized replay; optional EWC correction | sona |
+| `learn::deep_core` | EWC++ with online Fisher EMA (decay 0.999); z-score boundary detection over a sliding loss window | EWC++ |
+| `graph::temporal_core` | Bi-temporal edge store (`valid_at` / `invalid_at` / `created_at` / `expired_at`); point-in-time query; invalidate-don't-delete contradiction handling | graphiti |
+| `graph::attention` | 8-head graph attention with edge features (relation one-hot + recency decay + weight); per-head softmax weights | graphiti / GAT |
+| `router::core` | FastGRNN sparse (90%) + low-rank (rank-8) router; five heads (model, context bucket, temperature, top_p, confidence); epsilon-greedy exploration; per-target outcome EMA | original |
 
-### npm / bun (no Rust required)
+One JSON dispatch surface (`dispatch::LearnSession`) maps verbs to the cores; the wasm export wires `rs_learn_dispatch` to a singleton `LearnSession<HostKv>` backed by the host's `host_kv_*` shim.
+
+## Host contract
+
+The wasm module imports six functions:
+
+```c
+host_kv_get   (ns_ptr, ns_len, key_ptr, key_len)                        -> u64  // packed ptr+len
+host_kv_put   (ns_ptr, ns_len, key_ptr, key_len, val_ptr, val_len)      -> u32  // 0 = ok
+host_kv_query (ns_ptr, ns_len, query_ptr, query_len)                    -> u64
+host_vec_search (query_ptr, query_len, k)                                -> u64
+host_log      (level, msg_ptr, msg_len)                                  -> u32
+host_now_ms   ()                                                          -> i64
+```
+
+`host_kv_query` returns a JSON array of `[{key, value?}]` entries matching a key prefix.
+
+## Wasm exports
+
+```c
+rs_learn_alloc    (len)      -> *mut u8
+rs_learn_free     (ptr, len)
+rs_learn_dispatch (ptr, len) -> u64        // packed ptr+len of response JSON
+rs_learn_version  ()         -> *const u8  // NUL-terminated semver
+```
+
+Hosts pass an in-buffer (`{"verb": "...", "body": {...}}`) and read the response from the packed return.
+
+## Dispatch verbs
+
+Every call is `{ "verb": "<name>", "body": { ... } }` in, `{ "ok": bool, "verb": "<name>", "data"?: ..., "error"?: "..." }` out.
+
+| Verb | Body | Effect |
+| --- | --- | --- |
+| `health` | `{}` | Reports core readiness, Fisher key count, boundary count |
+| `init_instant` | `{targets: [String]}` | Initialize MicroLoRA adapter |
+| `feedback` | `{embedding, model, payload:{quality, signal?}, now_ms}` | Hebbian update + replay |
+| `apply_adapter` | `{embedding}` | Run adapter forward, return logits |
+| `reset_adapter` | `{}` | Zero adapter, reset LR |
+| `record_loss` | `{loss}` | Add to loss ring; returns whether z-score boundary fired |
+| `consolidate` | `{param_id, params, grads}` | Update Fisher EMA + snapshot |
+| `ewc_penalty` | `{param_id, params}` | Compute `lambda * sum(fisher * (params - snapshot)^2)` |
+| `init_router` | `{in_dim, targets, trained?, epsilon?}` | Initialize FastGRNN router |
+| `route` | `{embedding, estimated_tokens?}` | Return chosen model + sampling params |
+| `record_outcome` | `{target, quality}` | EMA-update per-target quality |
+| `init_attention` | `{dim, heads?, head_dim?, seed?}` | Initialize 8-head attention |
+| `attend` | `{query, subgraph:{nodes, edges}, now_ms}` | Multi-head attended context vector |
+| `insert_edge` | `{id, src, dst, relation?, valid_at, created_at, ...}` | Insert bi-temporal edge |
+| `query_at` | `{src, t}` | Edges where `valid_at <= t < invalid_at` |
+| `invalidate_edge` | `{edge_id, invalid_at, expired_at}` | Set invalidation stamps |
+| `contradict` | `{new_edge, contradicts:[edge_id], now_ms}` | Insert new edge + invalidate olds with `old.invalid_at = new.valid_at` |
+| `get_edge` | `{edge_id}` | Fetch one edge |
+
+## Bi-temporal model
+
+Edges carry four timestamps:
+
+- **`valid_at` / `invalid_at`** — the interval during which the fact held in the world (valid time)
+- **`created_at` / `expired_at`** — when we knew or stopped knowing the fact (system time)
+
+A point-in-time query at `t` returns edges with `valid_at <= t < invalid_at` (or `invalid_at IS NULL`). Contradictions never delete history: when fact B contradicts fact A starting at `t = B.valid_at`, we set `A.invalid_at = t` and `A.expired_at = now`, keeping A queryable for any time before `t`.
+
+This is the Graphiti invariant; the canonical test (`graphiti_style_contradiction_preserves_history`) walks the Alice@Acme → Alice@Globex scenario and witnesses both edges retrievable at their respective historical windows.
+
+## LoRA optimization
+
+`instant_core::InstantCore` keeps a rank-2 Hebbian adapter `(A: 2 x IN, B: 2 x n_targets)`. Each `feedback(emb, model, {quality, ...})` call:
+
+1. Maps quality `[0,1]` to a centered `scale = (q - 0.5) * 2`. Neutral (`q ~ 0.5`) is a no-op.
+2. Runs a Hebbian update on `A` and `B` for the chosen target, scaled by `lr * scale`.
+3. Applies the optional EWC correction: `delta -= lr * lambda * fisher * (params - snapshot)`.
+4. Decays `lr` by `0.995`, floored at `RS_LEARN_LR_MIN` (default `1e-3`).
+5. Clamps `||A,B||` to `MAX_ADAPTER_NORM = 5.0`.
+6. Buffers `(emb, idx, scale)` for `|scale|`-weighted prioritized replay (one extra Hebbian step on a sampled past transition).
+
+`apply_adapter(emb, logits)` adds `B @ (A @ emb)` to incoming logits. This is what the router calls per route to bend its decision toward locally-validated patterns.
+
+## Build
 
 ```bash
-npx rs-learn query "What's Alice's role?"
-bun x rs-learn query "What's Alice's role?"
+cargo build --target wasm32-wasip1 --release -p rs-learn
 ```
 
-Or install globally:
+The artifact is `target/wasm32-wasip1/release/rs_learn.wasm`. Hosts load it and call `rs_learn_dispatch`.
+
+## Testing
 
 ```bash
-npm install -g rs-learn
-bun add -g rs-learn
+cargo test -p rs-learn
 ```
 
-Postinstall downloads the correct platform binary from GitHub Releases. Supported: linux x64/arm64, macOS x64/arm64, Windows x64/arm64.
+65 tests covering algorithm invariants and end-to-end JSON dispatch through every verb, including:
 
-### Cargo
-
-```bash
-cargo install --git https://github.com/AnEntrypoint/rs-learn
-```
-
-Once published to crates.io:
-
-```bash
-cargo install rs-learn
-```
-
-Or clone and build:
-
-```bash
-git clone https://github.com/AnEntrypoint/rs-learn
-cd rs-learn
-cargo build --release
-```
-
-Binaries produced: `rs-learn`, `rs-learn-validate`.
-
-## Usage
-
-### CLI (no Rust required)
-
-```bash
-rs-learn query "What's Alice's role?"
-# → JSON with request_id, text, confidence, latency_ms, routing, stage_breakdown
-rs-learn feedback <request_id> 0.9
-rs-learn debug                  # all subsystems
-rs-learn debug instant          # one subsystem
-rs-learn --version
-rs-learn help
-```
-
-### Library
-
-```rust
-use rs_learn::Orchestrator;
-use rs_learn::learn::instant::FeedbackPayload;
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let orch = Orchestrator::new_default().await?;
-    let r = orch.query("What's Alice's role?", Default::default()).await?;
-    println!("{} {:?}", r.text, r.stage_breakdown);
-    orch.feedback(&r.request_id, FeedbackPayload { quality: 0.9, signal: None }).await?;
-    Ok(())
-}
-```
-
-## Agent backends
-
-rs-learn runs against either an ACP stdio agent or Claude Code's non-interactive `claude -p` mode. Pick one with `RS_LEARN_BACKEND=acp|claude-cli`, or leave it unset and rs-learn auto-selects (ACP if `RS_LEARN_ACP_COMMAND` is set, else claude-cli).
-
-### ACP stdio
-
-```bash
-RS_LEARN_ACP_COMMAND="opencode acp" rs-learn
-RS_LEARN_ACP_COMMAND="kilo acp" rs-learn          # requires prior `kilo auth login`
-RS_LEARN_ACP_COMMAND="gemini-cli acp" rs-learn
-RS_LEARN_ACP_COMMAND="codex acp" rs-learn
-```
-
-### Claude CLI (`claude -p`)
-
-```bash
-# auto-selects claude-cli when RS_LEARN_ACP_COMMAND is unset
-RS_LEARN_CLAUDE_MODEL=haiku rs-learn
-
-# or force it
-RS_LEARN_BACKEND=claude-cli RS_LEARN_CLAUDE_MODEL=sonnet rs-learn
-```
-
-Requires `claude` on PATH and a logged-in Claude Code install. Each query spawns a fresh `claude -p --output-format json --dangerously-skip-permissions --no-session-persistence` subprocess; prompt is piped via stdin so Windows `.cmd` argv parsing does not apply.
-
-Live E2E mode requires `RS_LEARN_ACP_LIVE=1`; otherwise the orchestrator uses the stub handler for tests.
-
-## Environment variables
-
-| Var | Default | Meaning |
-|---|---|---|
-| `RS_LEARN_DB_PATH` | `.rs-learn.db` | libsql file path |
-| `RS_LEARN_BACKEND` | auto | `acp` \| `claude-cli`; auto = acp if `RS_LEARN_ACP_COMMAND` set, else claude-cli |
-| `RS_LEARN_ACP_COMMAND` | — | ACP stdio command, e.g. `opencode acp` |
-| `RS_LEARN_ACP_ARGS` | — | extra args (whitespace-separated) |
-| `RS_LEARN_ACP_LIVE` | `0` | `1` = spawn real ACP subprocess, `0` = stub |
-| `RS_LEARN_CLAUDE_CLI` | `claude` | path/name of Claude CLI binary |
-| `RS_LEARN_CLAUDE_MODEL` | `haiku` | model alias passed to `claude --model` |
-| `RS_LEARN_CLAUDE_PLUGIN_DIR` | — | if set, adds `--plugin-dir <path>` to `claude -p` |
-| `RS_LEARN_CLAUDE_ARGS` | — | JSON array of extra args passed to `claude -p` |
-| `RS_LEARN_ENTITY_TYPES_JSON` | — | override default entity-type schema JSON for LLM extraction |
-| `RS_LEARN_EDGE_TYPES_JSON` | — | override default edge-type schema JSON for LLM extraction |
-| `RS_LEARN_SAGA_SUMMARY_EVERY` | `10` | auto-summarize saga every N episodes (0 = never) |
-| `RS_LEARN_BG_INTERVAL_SEC` | `0` (off) | if >0, `Orchestrator::new_default` spawns the background learning loop on this interval |
-| `RS_LEARN_TRAJ_KEEP` | `10000` | max trajectories retained by background pruning (keeps quality>0.7 + latest N) |
-| `RS_LEARN_REASONING_TTL_DAYS` | `7` | evict reasoning bank entries older than N days with success_rate < 0.3 |
-| `RS_LEARN_ROUTER_THRESHOLD` | `200` | trajectory count below which router stays on epsilon-greedy; exposed in `/debug/router` |
-| `RS_LEARN_EWC_LAMBDA` | `2000` | EWC++ regularization strength (100–15000) — only consulted when `DeepLoop` is wired explicitly |
-| `RS_LEARN_LLM_TIMEOUT_MS` | `120000` | per-turn timeout |
-| `RS_LEARN_DEBUG_ACP` | — | log ACP stderr |
-| `HF_TOKEN` | — | Hugging Face token for `push_to_hugging_face` |
-
-## Observability
-
-HTTP server binds at `127.0.0.1:7878` on startup.
-
-```bash
-curl http://127.0.0.1:7878/debug              # all subsystems
-curl http://127.0.0.1:7878/debug/acp          # ACP state
-curl http://127.0.0.1:7878/debug/router       # router state
-curl http://127.0.0.1:7878/debug/memory       # memory stats
-curl http://127.0.0.1:7878/debug/instant      # instant loop adapter + pending
-curl http://127.0.0.1:7878/debug/background   # background loop run count + last stats (when RS_LEARN_BG_INTERVAL_SEC>0)
-curl http://127.0.0.1:7878/debug/store        # store table counts
-curl http://127.0.0.1:7878/debug/attention    # attention head stats
-curl http://127.0.0.1:7878/debug/reasoning    # reasoning bank
-curl http://127.0.0.1:7878/debug/graph        # graph ingest/search/llm counters
-```
-
-`/debug/deep` registers when the orchestrator wires the deep loop (default: on, via `Orchestrator::new_default`).
-
-## Tests
-
-```bash
-cargo test --release
-```
-
-Integration suite lives in `tests/integration.rs` and exercises the full pipeline against an in-memory libsql DB.
-
-## CI / Release
-
-- `.github/workflows/test.yml` — cargo build + test matrix across 6 targets (linux/windows/macos × x86_64 + aarch64).
-- `.github/workflows/release.yml` — on tag `v*`, builds release binaries per target, attaches them to the GitHub Release, and (if `CARGO_REGISTRY_TOKEN` secret is set) publishes to crates.io.
+- LoRA: convergence under positive feedback, norm-bound clamp, LR-floor respect, neutral-feedback no-op, reset
+- Bi-temporal: insert validation, point-in-time query, idempotent invalidation, Graphiti contradiction scenario, cross-session KV persistence
+- EWC: Fisher EMA bound, penalty zero-at-snapshot, z-score boundary fires only after warm-up
+- Attention: weights-sum-to-one per head, embedding-dim filtering, relation nudge effect, query residual
+- Router: sparsity ~90%, untrained/trained behavior, epsilon=0/1 extremes, adapter override
+- Dispatch: unknown-verb error, missing-field error, JSON roundtrip, full pipeline (init_instant + init_router + insert_edge + route + feedback + query_at + health)
 
 ## License
 
 MIT
-
-## Claude Code plugin
-
-This repo is also a Claude Code plugin. Load directly:
-
-```bash
-claude --plugin-dir /path/to/rs-learn -p "your prompt"
-```
-
-Or via marketplace:
-
-```bash
-claude plugin marketplace add AnEntrypoint/rs-learn
-claude plugin install rs-learn@rs-learn
-```
-
-Provides:
-- **Skill**: `rs-learn` — continual-learning orchestrator guidance (skills/rs-learn/)
-- **Commands**: `/rs-learn-status`, `/rs-learn-query`, `/rs-learn-feedback`
-
-Requires the `rs-learn` binary on PATH (`cargo install rs-learn` or built from this repo) and `RS_LEARN_ACP_COMMAND` pointing to an ACP stdio agent.
