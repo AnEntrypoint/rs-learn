@@ -40,6 +40,8 @@ jobs:
           cargo generate-lockfile
 
       - name: Build WASM
+        env:
+          RUSTFLAGS: "-C link-arg=--allow-undefined"
         run: cargo build --release --target wasm32-wasip1 --no-default-features --features wasm --lib -p rs-learn
 
       - name: Rename WASM binary
