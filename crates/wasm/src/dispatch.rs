@@ -63,6 +63,7 @@ impl<B: KvBackend> LearnSession<B> {
             "record_outcome"  => self.handle_record_outcome(req.body),
             "init_attention"  => self.handle_init_attention(req.body),
             "attend"          => self.handle_attend(req.body),
+            "nudge_relation"  => self.handle_nudge_relation(req.body),
             "health"          => Ok(self.health()),
             _ => Err(format!("unknown verb: {}", verb)),
         };
@@ -136,11 +137,20 @@ impl<B: KvBackend> LearnSession<B> {
             .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
             .ok_or("targets required (string array)")?;
         if targets.is_empty() { return Err("targets must not be empty".into()); }
-        self.instant = Some(InstantCore::new(targets.clone()));
+        let core = InstantCore::new(targets.clone());
+        #[cfg(target_arch = "wasm32")]
+        crate::learn::persist::save_adapter(&core, "default").map_err(|e| format!("save_adapter: {:?}", e))?;
+        self.instant = Some(core);
         Ok(json!({ "n_targets": targets.len() }))
     }
 
     fn handle_feedback(&mut self, body: Value) -> Result<Value, String> {
+        #[cfg(target_arch = "wasm32")]
+        if self.instant.is_none() {
+            if let Some(c) = crate::learn::persist::load_adapter("default").map_err(|e| format!("load_adapter: {:?}", e))? {
+                self.instant = Some(c);
+            }
+        }
         let core = self.instant.as_mut().ok_or("instant not initialized; call init_instant first")?;
         let emb: Vec<f32> = serde_json::from_value(body.get("embedding").cloned().ok_or("embedding required")?)
             .map_err(|e| format!("embedding parse: {}", e))?;
@@ -149,14 +159,26 @@ impl<B: KvBackend> LearnSession<B> {
             .map_err(|e| format!("payload parse: {}", e))?;
         let now = body.get("now_ms").and_then(|v| v.as_i64()).unwrap_or(0);
         core.feedback(&emb, &model, payload, now)?;
-        Ok(json!({
+        let resp = json!({
             "adapter_norm": core.adapter_norm(),
             "feedback_count": core.feedback_count,
             "lr": core.lr,
-        }))
+        });
+        #[cfg(target_arch = "wasm32")]
+        {
+            let core = self.instant.as_ref().unwrap();
+            crate::learn::persist::save_adapter(core, "default").map_err(|e| format!("save_adapter: {:?}", e))?;
+        }
+        Ok(resp)
     }
 
-    fn handle_apply_adapter(&self, body: Value) -> Result<Value, String> {
+    fn handle_apply_adapter(&mut self, body: Value) -> Result<Value, String> {
+        #[cfg(target_arch = "wasm32")]
+        if self.instant.is_none() {
+            if let Some(c) = crate::learn::persist::load_adapter("default").map_err(|e| format!("load_adapter: {:?}", e))? {
+                self.instant = Some(c);
+            }
+        }
         let core = self.instant.as_ref().ok_or("instant not initialized")?;
         let emb: Vec<f32> = serde_json::from_value(body.get("embedding").cloned().ok_or("embedding required")?)
             .map_err(|e| format!("embedding parse: {}", e))?;
@@ -168,6 +190,8 @@ impl<B: KvBackend> LearnSession<B> {
     fn handle_reset_adapter(&mut self, _body: Value) -> Result<Value, String> {
         let core = self.instant.as_mut().ok_or("instant not initialized")?;
         core.reset_adapter();
+        #[cfg(target_arch = "wasm32")]
+        crate::learn::persist::save_adapter(core, "default").map_err(|e| format!("save_adapter: {:?}", e))?;
         Ok(json!({ "resets_performed": core.resets_performed }))
     }
 
@@ -191,14 +215,20 @@ impl<B: KvBackend> LearnSession<B> {
         let grads: Vec<f32> = serde_json::from_value(body.get("grads").cloned().ok_or("grads required")?)
             .map_err(|e| format!("grads parse: {}", e))?;
         self.deep.consolidate(&param_id, &params, &grads)?;
+        #[cfg(target_arch = "wasm32")]
+        crate::learn::persist::save_fisher(&self.deep, &param_id).map_err(|e| format!("save_fisher: {:?}", e))?;
         Ok(json!({ "param_id": param_id, "fisher_len": self.deep.fisher.get(&param_id).map(|v| v.len()).unwrap_or(0) }))
     }
 
-    fn handle_ewc_penalty(&self, body: Value) -> Result<Value, String> {
-        let param_id = body.get("param_id").and_then(|v| v.as_str()).ok_or("param_id required")?;
+    fn handle_ewc_penalty(&mut self, body: Value) -> Result<Value, String> {
+        let param_id = body.get("param_id").and_then(|v| v.as_str()).ok_or("param_id required")?.to_string();
         let params: Vec<f32> = serde_json::from_value(body.get("params").cloned().ok_or("params required")?)
             .map_err(|e| format!("params parse: {}", e))?;
-        let penalty = self.deep.ewc_penalty(param_id, &params);
+        #[cfg(target_arch = "wasm32")]
+        if !self.deep.fisher.contains_key(&param_id) {
+            let _ = crate::learn::persist::load_fisher_into(&mut self.deep, &param_id);
+        }
+        let penalty = self.deep.ewc_penalty(&param_id, &params);
         Ok(json!({ "penalty": penalty }))
     }
 
@@ -214,11 +244,19 @@ impl<B: KvBackend> LearnSession<B> {
         let trained = body.get("trained").and_then(|v| v.as_bool()).unwrap_or(false);
         let mut r = Router::new(cfg);
         if trained { r.set_trained(true); }
+        #[cfg(target_arch = "wasm32")]
+        crate::router::persist::save_router(&r, "default").map_err(|e| format!("save_router: {:?}", e))?;
         self.router = Some(r);
         Ok(json!({ "ready": true, "trained": trained }))
     }
 
     fn handle_route(&mut self, body: Value) -> Result<Value, String> {
+        #[cfg(target_arch = "wasm32")]
+        if self.router.is_none() {
+            if let Some(r) = crate::router::persist::load_router("default").map_err(|e| format!("load_router: {:?}", e))? {
+                self.router = Some(r);
+            }
+        }
         let r = self.router.as_mut().ok_or("router not initialized; call init_router first")?;
         let emb: Vec<f32> = serde_json::from_value(body.get("embedding").cloned().ok_or("embedding required")?)
             .map_err(|e| format!("embedding parse: {}", e))?;
@@ -238,10 +276,18 @@ impl<B: KvBackend> LearnSession<B> {
     }
 
     fn handle_record_outcome(&mut self, body: Value) -> Result<Value, String> {
+        #[cfg(target_arch = "wasm32")]
+        if self.router.is_none() {
+            if let Some(r) = crate::router::persist::load_router("default").map_err(|e| format!("load_router: {:?}", e))? {
+                self.router = Some(r);
+            }
+        }
         let r = self.router.as_mut().ok_or("router not initialized")?;
         let target = body.get("target").and_then(|v| v.as_str()).ok_or("target required")?;
         let quality = body.get("quality").and_then(|v| v.as_f64()).ok_or("quality required")? as f32;
         r.record_outcome(target, quality);
+        #[cfg(target_arch = "wasm32")]
+        crate::router::persist::save_router(r, "default").map_err(|e| format!("save_router: {:?}", e))?;
         let idx = r.config.targets.iter().position(|t| t == target);
         Ok(json!({
             "target": target,
@@ -256,11 +302,42 @@ impl<B: KvBackend> LearnSession<B> {
         let head_dim = body.get("head_dim").and_then(|v| v.as_u64()).unwrap_or((dim / heads) as u64) as usize;
         let seed = body.get("seed").and_then(|v| v.as_u64()).unwrap_or(42) as u32;
         if heads == 0 || head_dim == 0 || dim == 0 { return Err("dim/heads/head_dim must be > 0".into()); }
-        self.attention = Some(Attention::new(dim, heads, head_dim, seed));
+        let a = Attention::new(dim, heads, head_dim, seed);
+        #[cfg(target_arch = "wasm32")]
+        crate::graph::attention_persist::save_attention(&a, seed, "default").map_err(|e| format!("save_attention: {:?}", e))?;
+        self.attention = Some(a);
         Ok(json!({ "dim": dim, "heads": heads, "head_dim": head_dim }))
     }
 
-    fn handle_attend(&self, body: Value) -> Result<Value, String> {
+    fn handle_nudge_relation(&mut self, body: Value) -> Result<Value, String> {
+        let relation = body.get("relation").and_then(|v| v.as_str()).ok_or("relation required")?.to_string();
+        let quality = body.get("signed_quality").and_then(|v| v.as_f64()).ok_or("signed_quality required")? as f32;
+        #[cfg(target_arch = "wasm32")]
+        {
+            let (a, seed) = crate::graph::attention_persist::load_attention("default")
+                .map_err(|e| format!("load_attention: {:?}", e))?
+                .ok_or("attention not initialized; call init_attention first")?;
+            let mut a = a;
+            a.nudge_relation(&relation, quality);
+            crate::graph::attention_persist::save_attention(&a, seed, "default").map_err(|e| format!("save_attention: {:?}", e))?;
+            self.attention = Some(a);
+            return Ok(json!({ "relation": relation, "nudged": true }));
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let a = self.attention.as_mut().ok_or("attention not initialized")?;
+            a.nudge_relation(&relation, quality);
+            Ok(json!({ "relation": relation, "nudged": true }))
+        }
+    }
+
+    fn handle_attend(&mut self, body: Value) -> Result<Value, String> {
+        #[cfg(target_arch = "wasm32")]
+        if self.attention.is_none() {
+            if let Some((a, _s)) = crate::graph::attention_persist::load_attention("default").map_err(|e| format!("load_attention: {:?}", e))? {
+                self.attention = Some(a);
+            }
+        }
         let a = self.attention.as_ref().ok_or("attention not initialized")?;
         let q: Vec<f32> = serde_json::from_value(body.get("query").cloned().ok_or("query required")?)
             .map_err(|e| format!("query parse: {}", e))?;
