@@ -93,7 +93,8 @@ impl<B: KvBackend> LearnSession<B> {
     fn handle_query_at(&self, body: Value) -> Result<Value, String> {
         let src = body.get("src").and_then(|v| v.as_str()).ok_or("src required")?;
         let t = body.get("t").and_then(|v| v.as_i64()).ok_or("t required")?;
-        let edges = self.graph.query_at(src, t);
+        let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        let edges = if limit > 0 { self.graph.query_at_bounded(src, t, limit) } else { self.graph.query_at(src, t) };
         Ok(json!({ "edges": edges, "count": edges.len() }))
     }
 

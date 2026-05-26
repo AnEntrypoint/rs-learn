@@ -100,6 +100,16 @@ impl<B: KvBackend> TemporalGraph<B> {
         self.edges_by_src(src).into_iter().filter(|e| e.active_at(t)).collect()
     }
 
+    pub fn query_at_bounded(&self, src: &str, t: i64, limit: usize) -> Vec<EdgeRow> {
+        let mut edges: Vec<EdgeRow> = self.edges_by_src(src).into_iter().filter(|e| e.active_at(t)).collect();
+        if limit == 0 || edges.len() <= limit {
+            return edges;
+        }
+        edges.sort_by(|a, b| b.created_at.unwrap_or(0).cmp(&a.created_at.unwrap_or(0)));
+        edges.truncate(limit);
+        edges
+    }
+
     pub fn invalidate_edge(&mut self, edge_id: &str, invalid_at: i64, expired_at: i64) -> Result<(), String> {
         let mut edge = self.get_edge(edge_id).ok_or_else(|| format!("edge {} not found", edge_id))?;
         if let Some(existing_iv) = edge.invalid_at {
@@ -169,6 +179,23 @@ mod tests {
         let e = mk_edge("e1", "alice", "acme", 1000);
         g.insert_edge(e.clone()).unwrap();
         assert_eq!(g.get_edge("e1"), Some(e));
+    }
+
+    #[test]
+    fn query_at_bounded_returns_k_most_recent_active() {
+        let mut g = TemporalGraph::new(MemKv::default());
+        for i in 0..5 {
+            g.insert_edge(mk_edge(&format!("e{}", i), "hub", &format!("d{}", i), 1000 + i * 100)).unwrap();
+        }
+        let full = g.query_at("hub", 9999);
+        assert_eq!(full.len(), 5);
+        let bounded = g.query_at_bounded("hub", 9999, 3);
+        assert_eq!(bounded.len(), 3);
+        let ids: Vec<&str> = bounded.iter().map(|e| e.id.as_str()).collect();
+        assert!(ids.contains(&"e4") && ids.contains(&"e3") && ids.contains(&"e2"));
+        assert!(!ids.contains(&"e0") && !ids.contains(&"e1"));
+        assert_eq!(g.query_at_bounded("hub", 9999, 0).len(), 5);
+        assert_eq!(g.query_at_bounded("hub", 9999, 10).len(), 5);
     }
 
     #[test]
