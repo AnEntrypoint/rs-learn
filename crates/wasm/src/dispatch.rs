@@ -185,7 +185,7 @@ impl<B: KvBackend> LearnSession<B> {
             .map_err(|e| format!("embedding parse: {}", e))?;
         let mut logits = vec![0f32; core.n_targets];
         core.apply_adapter(&emb, &mut logits);
-        Ok(json!({ "logits": logits }))
+        Ok(json!({ "logits": logits, "targets": core.targets }))
     }
 
     fn handle_reset_adapter(&mut self, _body: Value) -> Result<Value, String> {
