@@ -56,6 +56,15 @@ docs/data/
 .gm/prd.paused.yml
 .gm/rs-learn.db-shm
 .gm/rs-learn.db-wal
-# tracked: .gm/rs-learn.db, .gm/code-search/, AGENTS.md, .gm/prd.yml
+.gm/browser-profile/
+.gm/exec-spool/
+.gm/gm-fired-this-turn
+.gm/historical/
+.gm/imported-claude-md-*.md
+.gm/mutables.yml
+.gm/prd.yml
+.gm/turn-state.json.corrupted-*
+.code-search/
+# tracked: .gm/rs-learn.db, .gm/code-search/, AGENTS.md
 # <<< gm managed
 .codeinsight/
