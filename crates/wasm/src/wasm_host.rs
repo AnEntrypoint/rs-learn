@@ -2,6 +2,7 @@
 
 use crate::errors::{LlmError, Result};
 
+#[link(wasm_import_module = "env")]
 extern "C" {
     pub fn host_kv_get(ns_ptr: *const u8, ns_len: u32, key_ptr: *const u8, key_len: u32) -> u64;
     pub fn host_kv_put(
