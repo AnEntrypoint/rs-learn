@@ -66,7 +66,7 @@ pub fn kv_put(namespace: &str, key: &str, val: &[u8]) -> Result<()> {
             val.len() as u32,
         )
     };
-    if rc == 0 {
+    if rc != 0 {
         Ok(())
     } else {
         Err(LlmError::Process(format!("host_kv_put failed rc={}", rc)))

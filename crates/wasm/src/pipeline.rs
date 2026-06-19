@@ -10,6 +10,7 @@ const HMAC_KEY_DEFAULT: &str = "dev-only-not-secret-rotate-in-prod";
 const SUMMARIZE_THRESHOLD: usize = 2048;
 const KV_NS: &str = "rs-learn/pipeline";
 
+#[link(wasm_import_module = "env")]
 extern "C" {
     fn host_env_get(key_ptr: *const u8, key_len: u32) -> u64;
 }
