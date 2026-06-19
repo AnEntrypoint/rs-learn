@@ -61,6 +61,9 @@ pub fn load_router(key: &str) -> Result<Option<Router>> {
         threshold: blob.threshold,
         epsilon: blob.epsilon,
     };
+    if cfg.targets.is_empty() {
+        return Err(LlmError::Process("router blob has no targets".into()));
+    }
     let mut r = Router::new(cfg);
     let w = Weights {
         v: blob.v, u: blob.u, uh: blob.uh, bh: blob.bh, bz: blob.bz,
@@ -72,19 +75,16 @@ pub fn load_router(key: &str) -> Result<Option<Router>> {
         top_p: blob.h_top_p, top_p_b: blob.h_top_p_b,
         conf: blob.h_conf, conf_b: blob.h_conf_b,
     };
-    if w.v.len() == r.w.v.len()
+    let weights_match = w.v.len() == r.w.v.len()
         && w.u.len() == r.w.u.len()
         && w.uh.len() == r.w.uh.len()
-        && h.model.len() == r.heads.model.len()
-    {
+        && h.model.len() == r.heads.model.len();
+    if weights_match {
         r.w = w;
         r.heads = h;
-    } else {
-        let _ = init_weights;
-        let _ = init_heads;
     }
     r.version = blob.version;
-    r.trained = blob.trained;
+    r.trained = blob.trained && weights_match;
     r.trajectory_count = blob.trajectory_count;
     r.inference_count = blob.inference_count;
     r.per_target_counts = blob.per_target_counts;
