@@ -243,7 +243,7 @@ impl<B: KvBackend> LearnSession<B> {
         if let Some(eps) = body.get("epsilon").and_then(|v| v.as_f64()) { cfg.epsilon = eps as f32; }
         if let Some(thr) = body.get("threshold").and_then(|v| v.as_u64()) { cfg.threshold = thr; }
         let trained = body.get("trained").and_then(|v| v.as_bool()).unwrap_or(false);
-        let mut r = Router::new(cfg);
+        let mut r = Router::new(cfg).map_err(|e| e)?;
         if trained { r.set_trained(true); }
         #[cfg(target_arch = "wasm32")]
         crate::router::persist::save_router(&r, "default").map_err(|e| format!("save_router: {:?}", e))?;

@@ -64,7 +64,7 @@ pub fn load_router(key: &str) -> Result<Option<Router>> {
     if cfg.targets.is_empty() {
         return Err(LlmError::Process("router blob has no targets".into()));
     }
-    let mut r = Router::new(cfg);
+    let mut r = Router::new(cfg).map_err(|e| crate::errors::LlmError::Process(e))?;
     let w = Weights {
         v: blob.v, u: blob.u, uh: blob.uh, bh: blob.bh, bz: blob.bz,
     };

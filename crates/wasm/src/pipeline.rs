@@ -6,7 +6,6 @@ use serde_json::{json, Value};
 use crate::wasm_host;
 
 const TTL_MS: u64 = 120_000;
-const HMAC_KEY_DEFAULT: &str = "dev-only-not-secret-rotate-in-prod";
 const SUMMARIZE_THRESHOLD: usize = 2048;
 const KV_NS: &str = "rs-learn/pipeline";
 
@@ -25,7 +24,7 @@ pub struct PendingStep {
     pub result_schema: Value,
 }
 
-fn hmac_key() -> String {
+fn hmac_key() -> Result<String, String> {
     let k = "RS_LEARN_PIPELINE_HMAC_KEY";
     let packed = unsafe { host_env_get(k.as_ptr(), k.len() as u32) };
     let ptr = (packed & 0xFFFF_FFFF) as u32;
@@ -33,10 +32,10 @@ fn hmac_key() -> String {
     if ptr != 0 && len != 0 {
         let s = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
         if !s.is_empty() {
-            return String::from_utf8_lossy(s).into_owned();
+            return Ok(String::from_utf8_lossy(s).into_owned());
         }
     }
-    HMAC_KEY_DEFAULT.to_string()
+    Err("RS_LEARN_PIPELINE_HMAC_KEY env var not set".into())
 }
 
 fn fnv1a64(bytes: &[u8]) -> u64 {
@@ -60,13 +59,16 @@ fn mint_step_id() -> String {
     format!("stp_{:016x}", now ^ r)
 }
 
-pub fn mint_token(step_id: &str, kv_key: &str, deadline_ms: u64) -> String {
+pub fn mint_token(step_id: &str, kv_key: &str, deadline_ms: u64) -> Result<String, String> {
     let payload = format!("{}|{}|{}", step_id, kv_key, deadline_ms);
-    format!("tkn_{}.{}", step_id, keyed_hash(&hmac_key(), &payload))
+    Ok(format!("tkn_{}.{}", step_id, keyed_hash(&hmac_key()?, &payload)))
 }
 
 pub fn verify_token(token: &str, step_id: &str, kv_key: &str, deadline_ms: u64) -> bool {
-    let expected = mint_token(step_id, kv_key, deadline_ms);
+    let expected = match mint_token(step_id, kv_key, deadline_ms) {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
     if token.len() != expected.len() { return false; }
     let mut diff: u8 = 0;
     for (a, b) in token.bytes().zip(expected.bytes()) { diff |= a ^ b; }
@@ -79,8 +81,14 @@ pub fn needs_summarize(text: &str) -> bool {
 
 pub fn evict_expired() {
     let now = wasm_host::now_ms() as u64;
-    let raw = wasm_host::kv_query(KV_NS, "").unwrap_or_default();
-    let entries: Vec<Value> = serde_json::from_slice(&raw).unwrap_or_default();
+    let raw = match wasm_host::kv_query(KV_NS, "") {
+        Ok(r) => r,
+        Err(e) => { wasm_host::log(&format!("evict_expired kv_query: {:?}", e)); return; }
+    };
+    let entries: Vec<Value> = match serde_json::from_slice(&raw) {
+        Ok(v) => v,
+        Err(e) => { wasm_host::log(&format!("evict_expired parse: {}", e)); return; }
+    };
     for e in entries {
         let key = match e.get("key").and_then(|v| v.as_str()) { Some(k) => k.to_string(), None => continue };
         let val_str = e.get("value").and_then(|v| v.as_str()).unwrap_or("");
@@ -92,7 +100,7 @@ pub fn evict_expired() {
     }
 }
 
-pub fn build_summarize_pending(text: &str, namespace: &str) -> Value {
+pub fn build_summarize_pending(text: &str, namespace: &str) -> Result<Value, String> {
     let step_id = mint_step_id();
     let now = wasm_host::now_ms() as u64;
     let deadline_ms = now + TTL_MS;
@@ -124,7 +132,7 @@ pub fn build_summarize_pending(text: &str, namespace: &str) -> Value {
     });
     let _ = wasm_host::kv_put(KV_NS, &step_id, state.to_string().as_bytes());
 
-    json!({
+    Ok(json!({
         "ok": true,
         "pending_step": {
             "kind": "summarize",
@@ -138,9 +146,9 @@ pub fn build_summarize_pending(text: &str, namespace: &str) -> Value {
             "max_result_bytes": 4096,
             "result_schema": result_schema
         },
-        "token": mint_token(&step_id, &kv_key, deadline_ms),
+        "token": mint_token(&step_id, &kv_key, deadline_ms)?,
         "state_kv_key": kv_key,
         "deadline_ms": deadline_ms,
         "attempts_remaining": 2
-    })
+    }))
 }

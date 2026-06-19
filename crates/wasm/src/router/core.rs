@@ -183,12 +183,12 @@ pub struct Router {
 }
 
 impl Router {
-    pub fn new(config: RouterConfig) -> Self {
-        if config.targets.is_empty() { panic!("router: targets required"); }
+    pub fn new(config: RouterConfig) -> Result<Self, String> {
+        if config.targets.is_empty() { return Err("router: targets required".into()); }
         let nt = config.targets.len();
         let w = init_weights(config.in_dim);
         let heads = init_heads(nt);
-        Self {
+        Ok(Self {
             config,
             w, heads,
             version: 0,
@@ -197,7 +197,7 @@ impl Router {
             inference_count: 0,
             per_target_counts: vec![0u64; nt],
             per_target_quality_milli: vec![500u64; nt],
-        }
+        })
     }
 
     pub fn record_outcome(&mut self, target: &str, quality: f32) {
@@ -275,7 +275,7 @@ mod tests {
 
     fn mk_router(n_targets: usize, in_dim: usize) -> Router {
         let targets: Vec<String> = (0..n_targets).map(|i| format!("m{}", i)).collect();
-        Router::new(RouterConfig::new(in_dim, targets))
+        Router::new(RouterConfig::new(in_dim, targets)).unwrap()
     }
 
     fn mk_emb(dim: usize, seed: u8) -> Vec<f32> {
@@ -294,9 +294,8 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "router: targets required")]
-    fn empty_targets_panics() {
-        Router::new(RouterConfig::new(384, vec![]));
+    fn empty_targets_returns_err() {
+        assert!(Router::new(RouterConfig::new(384, vec![])).is_err());
     }
 
     #[test]
