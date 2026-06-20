@@ -62,7 +62,7 @@ pub fn load_router(key: &str) -> Result<Option<Router>> {
         epsilon: blob.epsilon,
     };
     if cfg.targets.is_empty() {
-        return Err(LlmError::Process("router blob has no targets".into()));
+        return Err(crate::errors::LlmError::Process("router blob has no targets".into()));
     }
     let mut r = Router::new(cfg).map_err(|e| crate::errors::LlmError::Process(e))?;
     let w = Weights {
@@ -87,7 +87,12 @@ pub fn load_router(key: &str) -> Result<Option<Router>> {
     r.trained = blob.trained && weights_match;
     r.trajectory_count = blob.trajectory_count;
     r.inference_count = blob.inference_count;
-    r.per_target_counts = blob.per_target_counts;
-    r.per_target_quality_milli = blob.per_target_quality_milli;
+    let n_targets = r.config.targets.len();
+    if blob.per_target_counts.len() == n_targets {
+        r.per_target_counts = blob.per_target_counts;
+    }
+    if blob.per_target_quality_milli.len() == n_targets {
+        r.per_target_quality_milli = blob.per_target_quality_milli;
+    }
     Ok(Some(r))
 }

@@ -261,6 +261,9 @@ impl<B: KvBackend> LearnSession<B> {
         let r = self.router.as_mut().ok_or("router not initialized; call init_router first")?;
         let emb: Vec<f32> = serde_json::from_value(body.get("embedding").cloned().ok_or("embedding required")?)
             .map_err(|e| format!("embedding parse: {}", e))?;
+        if emb.len() != r.config.in_dim {
+            return Err(format!("embedding must be len {}, got {}", r.config.in_dim, emb.len()));
+        }
         let mut ctx = RouteCtx::default();
         if let Some(tt) = body.get("task_type").and_then(|v| v.as_str()) { ctx.task_type = Some(tt.into()); }
         if let Some(et) = body.get("estimated_tokens").and_then(|v| v.as_u64()) { ctx.estimated_tokens = et; }

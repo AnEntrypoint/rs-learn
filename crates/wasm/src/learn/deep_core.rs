@@ -47,6 +47,7 @@ impl DeepCore {
     }
 
     pub fn record_loss(&mut self, loss: f32) -> bool {
+        if !loss.is_finite() { return false; }
         let prior: Vec<f32> = self.loss_ring.iter().copied().collect();
         if self.loss_ring.len() >= self.ring_cap { self.loss_ring.pop_front(); }
         self.loss_ring.push_back(loss);
