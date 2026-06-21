@@ -19,10 +19,12 @@ impl KvBackend for HostKv {
         if bytes.is_empty() { None } else { Some(bytes) }
     }
 
-    fn put(&mut self, namespace: &str, key: &str, val: &[u8]) {
-        if let Err(e) = wasm_host::kv_put(namespace, key, val) {
-            wasm_host::log(&format!("host_kv_backend put failed: {}", e));
-        }
+    fn put(&mut self, namespace: &str, key: &str, val: &[u8]) -> Result<(), String> {
+        wasm_host::kv_put(namespace, key, val).map_err(|e| {
+            let msg = format!("host_kv_backend put failed: {}", e);
+            wasm_host::log(&msg);
+            msg
+        })
     }
 
     fn list_prefix(&self, namespace: &str, prefix: &str) -> Vec<String> {

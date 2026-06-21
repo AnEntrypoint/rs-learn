@@ -8,7 +8,7 @@ pub const NS_NODES: &str = "rs-learn/graph/nodes";
 
 pub trait KvBackend {
     fn get(&self, namespace: &str, key: &str) -> Option<Vec<u8>>;
-    fn put(&mut self, namespace: &str, key: &str, val: &[u8]);
+    fn put(&mut self, namespace: &str, key: &str, val: &[u8]) -> Result<(), String>;
     fn list_prefix(&self, namespace: &str, prefix: &str) -> Vec<String>;
 }
 
@@ -21,8 +21,9 @@ impl KvBackend for MemKv {
     fn get(&self, namespace: &str, key: &str) -> Option<Vec<u8>> {
         self.inner.get(&(namespace.to_string(), key.to_string())).cloned()
     }
-    fn put(&mut self, namespace: &str, key: &str, val: &[u8]) {
+    fn put(&mut self, namespace: &str, key: &str, val: &[u8]) -> Result<(), String> {
         self.inner.insert((namespace.to_string(), key.to_string()), val.to_vec());
+        Ok(())
     }
     fn list_prefix(&self, namespace: &str, prefix: &str) -> Vec<String> {
         let mut out: Vec<String> = self.inner.keys()
@@ -59,20 +60,21 @@ impl<B: KvBackend> TemporalGraph<B> {
             if iv < va { return Err("edge.invalid_at must be >= edge.valid_at".into()); }
         }
         let blob = serde_json::to_vec(&edge).map_err(|e| format!("serialize: {}", e))?;
-        self.kv.put(NS_EDGES, &id, &blob);
-        self.append_index(NS_EDGES_BY_SRC, &edge.src, &id);
-        self.append_index(NS_EDGES_BY_DST, &edge.dst, &id);
+        self.kv.put(NS_EDGES, &id, &blob)?;
+        self.append_index(NS_EDGES_BY_SRC, &edge.src, &id)?;
+        self.append_index(NS_EDGES_BY_DST, &edge.dst, &id)?;
         Ok(())
     }
 
-    fn append_index(&mut self, ns: &str, key: &str, edge_id: &str) {
+    fn append_index(&mut self, ns: &str, key: &str, edge_id: &str) -> Result<(), String> {
         let existing = self.kv.get(ns, key).unwrap_or_default();
         let mut s = String::from_utf8(existing).unwrap_or_default();
         if !s.split(',').any(|e| e == edge_id) {
             if !s.is_empty() { s.push(','); }
             s.push_str(edge_id);
-            self.kv.put(ns, key, s.as_bytes());
+            self.kv.put(ns, key, s.as_bytes())?;
         }
+        Ok(())
     }
 
     pub fn get_edge(&self, edge_id: &str) -> Option<EdgeRow> {
@@ -125,7 +127,7 @@ impl<B: KvBackend> TemporalGraph<B> {
         edge.invalid_at = Some(invalid_at);
         edge.expired_at = Some(expired_at);
         let blob = serde_json::to_vec(&edge).map_err(|e| format!("serialize: {}", e))?;
-        self.kv.put(NS_EDGES, edge_id, &blob);
+        self.kv.put(NS_EDGES, edge_id, &blob)?;
         Ok(())
     }
 
