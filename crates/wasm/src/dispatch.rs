@@ -155,6 +155,7 @@ impl<B: KvBackend> LearnSession<B> {
         let core = self.instant.as_mut().ok_or("instant not initialized; call init_instant first")?;
         let emb: Vec<f32> = serde_json::from_value(body.get("embedding").cloned().ok_or("embedding required")?)
             .map_err(|e| format!("embedding parse: {}", e))?;
+        if emb.iter().any(|x| !x.is_finite()) { return Err("embedding has non-finite values".into()); }
         let model = body.get("model").and_then(|v| v.as_str()).ok_or("model required")?.to_string();
         let payload: FeedbackPayload = serde_json::from_value(body.get("payload").cloned().ok_or("payload required")?)
             .map_err(|e| format!("payload parse: {}", e))?;
@@ -183,6 +184,7 @@ impl<B: KvBackend> LearnSession<B> {
         let core = self.instant.as_ref().ok_or("instant not initialized")?;
         let emb: Vec<f32> = serde_json::from_value(body.get("embedding").cloned().ok_or("embedding required")?)
             .map_err(|e| format!("embedding parse: {}", e))?;
+        if emb.iter().any(|x| !x.is_finite()) { return Err("embedding has non-finite values".into()); }
         let mut logits = vec![0f32; core.n_targets];
         core.apply_adapter(&emb, &mut logits);
         Ok(json!({ "logits": logits, "targets": core.targets }))
@@ -264,6 +266,7 @@ impl<B: KvBackend> LearnSession<B> {
         if emb.len() != r.config.in_dim {
             return Err(format!("embedding must be len {}, got {}", r.config.in_dim, emb.len()));
         }
+        if emb.iter().any(|x| !x.is_finite()) { return Err("embedding has non-finite values".into()); }
         let mut ctx = RouteCtx::default();
         if let Some(tt) = body.get("task_type").and_then(|v| v.as_str()) { ctx.task_type = Some(tt.into()); }
         if let Some(et) = body.get("estimated_tokens").and_then(|v| v.as_u64()) { ctx.estimated_tokens = et; }
