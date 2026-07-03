@@ -1,0 +1,13 @@
+crates/wasm/src/learn/persist.rs:36:47 load_adapter
+pub fn load_adapter(key: &str) -> Result<Option<InstantCore>> {
+    let bytes = wasm_host::kv_get(NS_ADAPTER, key)?;
+    if bytes.is_empty() { return Ok(None); }
+    let blob: AdapterBlob = serde_json::from_slice(&bytes)?;
+    let mut core = InstantCore::new(blob.targets);
+    if blob.adapter_a.len() == core.adapter_a.len() { core.adapter_a = blob.adapter_a; }
+    if blob.adapter_b.len() == core.adapter_b.len() { core.adapter_b = blob.adapter_b; }
+    core.lr = blob.lr;
+    core.feedback_count = blob.feedback_count;
+    core.resets_performed = blob.resets;
+    Ok(Some(core))
+}

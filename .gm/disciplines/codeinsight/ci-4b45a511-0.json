@@ -1,0 +1,12 @@
+crates/wasm/src/learn/persist.rs:61:71 load_fisher_into
+pub fn load_fisher_into(deep: &mut DeepCore, param_id: &str) -> Result<bool> {
+    let fbytes = wasm_host::kv_get(NS_FISHER, param_id)?;
+    let sbytes = wasm_host::kv_get(NS_SNAPSHOT, param_id)?;
+    if fbytes.is_empty() || sbytes.is_empty() { return Ok(false); }
+    let fisher: Vec<f32> = serde_json::from_slice(&fbytes)?;
+    let snapshot: Vec<f32> = serde_json::from_slice(&sbytes)?;
+    if fisher.len() != snapshot.len() { return Ok(false); }
+    deep.fisher.insert(param_id.to_string(), fisher);
+    deep.params_snapshot.insert(param_id.to_string(), snapshot);
+    Ok(true)
+}

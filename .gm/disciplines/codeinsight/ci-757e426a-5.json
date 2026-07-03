@@ -1,0 +1,4 @@
+crates/wasm/src/wasm_host.rs:38:40 log
+pub fn log(msg: &str) {
+    let _ = unsafe { host_log(1, msg.as_ptr(), msg.len() as u32) };
+}

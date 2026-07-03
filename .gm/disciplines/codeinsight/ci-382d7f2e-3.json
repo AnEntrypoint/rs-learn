@@ -1,0 +1,7 @@
+crates/wasm/src/learn/deep_core.rs:185:190 ring_cap_enforced
+fn ring_cap_enforced() {
+        let mut d = DeepCore::new();
+        for i in 0..30 { d.record_loss(i as f32); }
+        assert_eq!(d.loss_ring.len(), RING_CAP);
+        assert_eq!(*d.loss_ring.front().unwrap(), 20.0);
+    }

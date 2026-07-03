@@ -1,0 +1,7 @@
+crates/wasm/src/learn/instant_core.rs:249:254 neutral_feedback_no_change
+fn neutral_feedback_no_change() {
+        let mut core = InstantCore::new(vec!["m".into()]);
+        let emb = make_emb(5);
+        core.feedback(&emb, "m", FeedbackPayload { quality: 0.5, signal: None }, 1).unwrap();
+        assert_eq!(core.adapter_norm(), 0.0);
+    }

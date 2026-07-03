@@ -1,0 +1,8 @@
+docs/app.js:70:76 Receipt
+function Receipt({ rows }) {
+  return h("table", { class: "kv" },
+    h("tbody", {}, ...rows.map(([k, v], i) =>
+      h("tr", { key: i }, h("td", {}, k), h("td", {}, v))
+    )),
+  );
+}

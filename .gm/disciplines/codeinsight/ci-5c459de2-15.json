@@ -1,0 +1,8 @@
+crates/wasm/src/graph/attention.rs:78:84 layer_norm
+pub fn layer_norm(x: &[f32]) -> Vec<f32> {
+    let n = x.len() as f32;
+    let mean: f32 = x.iter().sum::<f32>() / n;
+    let var: f32 = x.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / n;
+    let inv = 1.0 / (var + 1e-5).sqrt();
+    x.iter().map(|v| (v - mean) * inv).collect()
+}

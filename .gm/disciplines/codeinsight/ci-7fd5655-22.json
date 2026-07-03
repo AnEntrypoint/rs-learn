@@ -1,0 +1,22 @@
+crates/wasm/src/router/core.rs:97:117 init_heads
+pub fn init_heads(n_targets: usize) -> Heads {
+    let mut rnd = mulberry32(SEED ^ 0xA17C);
+    let s = 1.0 / (DIM as f32).sqrt();
+    let mut mk = |n: usize| {
+        let mut a = vec![0f32; n * DIM];
+        for x in a.iter_mut() { *x = randn(&mut rnd) * s; }
+        a
+    };
+    let model = mk(n_targets);
+    let ctx = mk(CTX_BUCKETS);
+    let temp = mk(1);
+    let top_p = mk(1);
+    let conf = mk(1);
+    Heads {
+        model, model_b: vec![0f32; n_targets],
+        ctx, ctx_b: vec![0f32; CTX_BUCKETS],
+        temp, temp_b: vec![0f32; 1],
+        top_p, top_p_b: vec![0f32; 1],
+        conf, conf_b: vec![0f32; 1],
+    }
+}

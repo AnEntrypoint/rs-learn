@@ -1,0 +1,29 @@
+crates/wasm/src/router/core.rs:131:158 forward
+pub fn forward(w: &Weights, hd: &Heads, x: &[f32], in_dim: usize, n_targets: usize) -> Fwd {
+    let mut proj = vec![0f32; RANK];
+    matvec(&w.v, RANK, in_dim, x, &mut proj);
+    let mut wx = vec![0f32; DIM];
+    matvec(&w.u, DIM, RANK, &proj, &mut wx);
+    let mut h = vec![0f32; DIM];
+    for d in 0..DIM {
+        let pre = wx[d] + w.bh[d];
+        let z = sig(pre + w.bz[d]);
+        h[d] = (1.0 - z) * pre.tanh();
+    }
+    let head = |wm: &[f32], b: &[f32], n: usize| {
+        let mut o = b.to_vec();
+        for k in 0..n { o[k] += dot(&wm[k * DIM..(k + 1) * DIM], &h); }
+        o
+    };
+    let ml = head(&hd.model, &hd.model_b, n_targets);
+    let cl = head(&hd.ctx, &hd.ctx_b, CTX_BUCKETS);
+    let tp = head(&hd.temp, &hd.temp_b, 1)[0];
+    let tpp = head(&hd.top_p, &hd.top_p_b, 1)[0];
+    let cf = head(&hd.conf, &hd.conf_b, 1)[0];
+    Fwd {
+        h, ml, cl,
+        tp: 0.1 + sig(tp) * 1.4,
+        top_p: 0.5 + sig(tpp) * 0.5,
+        conf: sig(cf),
+    }
+}

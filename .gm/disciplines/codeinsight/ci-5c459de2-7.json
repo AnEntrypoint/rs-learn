@@ -1,0 +1,6 @@
+crates/wasm/src/graph/attention.rs:256:260 attend_rejects_wrong_dim
+fn attend_rejects_wrong_dim() {
+        let a = Attention::new(64, 8, 8, 1);
+        let q = vec![0.0; 32];
+        assert!(a.attend(&q, &Subgraph::default(), 0).is_err());
+    }

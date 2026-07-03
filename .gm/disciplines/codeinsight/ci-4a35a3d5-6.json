@@ -1,0 +1,15 @@
+docs/app.js:165:178 NumbersView
+function NumbersView({ data }) {
+  const n = data.numbers;
+  return [
+    h("h2", {}, n.title),
+    h("div", { class: "panel" },
+      h("div", { class: "panel-body" }, ...n.stats.map((s, i) =>
+        h("div", { key: i, class: "row", style: "grid-template-columns:1fr auto" },
+          h("span", { class: "title" }, s.label),
+          h("span", { style: "font-family:var(--ff-mono);font-size:20px;color:var(--panel-accent);font-weight:600" }, s.value),
+        )
+      )),
+    ),
+  ];
+}

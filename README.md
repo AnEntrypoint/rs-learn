@@ -24,7 +24,7 @@ The wasm module imports six functions:
 
 ```c
 host_kv_get   (ns_ptr, ns_len, key_ptr, key_len)                        -> u64  // packed ptr+len
-host_kv_put   (ns_ptr, ns_len, key_ptr, key_len, val_ptr, val_len)      -> u32  // 0 = ok
+host_kv_put   (ns_ptr, ns_len, key_ptr, key_len, val_ptr, val_len)      -> u32  // nonzero = ok, 0 = failure
 host_kv_query (ns_ptr, ns_len, query_ptr, query_len)                    -> u64
 host_vec_search (query_ptr, query_len, k)                                -> u64
 host_log      (level, msg_ptr, msg_len)                                  -> u32

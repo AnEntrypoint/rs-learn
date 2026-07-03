@@ -1,0 +1,8 @@
+crates/wasm/src/router/core.rs:160:166 softmax_argmax
+pub fn softmax_argmax(a: &[f32]) -> (usize, f32) {
+    let (mut mi, mut m) = (0usize, f32::NEG_INFINITY);
+    for (i, &v) in a.iter().enumerate() { if v > m { m = v; mi = i; } }
+    let mut s = 0.0;
+    for &v in a { s += (v - m).exp(); }
+    (mi, (a[mi] - m).exp() / s)
+}

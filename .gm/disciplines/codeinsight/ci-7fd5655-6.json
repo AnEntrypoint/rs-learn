@@ -1,0 +1,6 @@
+crates/wasm/src/router/core.rs:345:349 sparsity_around_90_percent
+fn sparsity_around_90_percent() {
+        let r = mk_router(3, 384);
+        let s = r.sparsity_fraction();
+        assert!((s - SPARSITY).abs() < 0.15, "sparsity {} should be near {}", s, SPARSITY);
+    }

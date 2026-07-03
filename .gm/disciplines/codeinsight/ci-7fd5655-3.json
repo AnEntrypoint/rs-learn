@@ -1,0 +1,13 @@
+crates/wasm/src/router/core.rs:370:381 forward_uses_low_rank_path
+fn forward_uses_low_rank_path() {
+        let w = init_weights(384);
+        let heads = init_heads(3);
+        let x = mk_emb(384, 1);
+        let f = forward(&w, &heads, &x, 384, 3);
+        assert_eq!(f.h.len(), DIM);
+        assert_eq!(f.ml.len(), 3);
+        assert_eq!(f.cl.len(), CTX_BUCKETS);
+        assert!(f.tp >= 0.1 && f.tp <= 1.5);
+        assert!(f.top_p >= 0.5 && f.top_p <= 1.0);
+        assert!(f.conf >= 0.0 && f.conf <= 1.0);
+    }

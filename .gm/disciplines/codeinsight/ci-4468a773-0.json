@@ -1,0 +1,12 @@
+site/theme.mjs:206:216 
+async (ctx) => {
+    const site = ctx.readGlobal('site') || {};
+    const nav = ctx.readGlobal('navigation') || { links: [] };
+    const homeDoc = ctx.read('pages').docs.find(p => p.id === 'home');
+    if (!homeDoc) throw new Error('config/pages/home.yaml missing or has no id: home');
+
+    return [{
+      path: 'index.html',
+      html: html({ site, nav, home: homeDoc })
+    }];
+  }

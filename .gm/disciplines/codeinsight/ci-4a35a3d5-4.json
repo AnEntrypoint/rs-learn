@@ -1,0 +1,13 @@
+docs/app.js:198:209 Status
+function Status({ data }) {
+  return h("footer", { class: "app-status" },
+    h("span", { class: "item" }, "main"),
+    h("span", { class: "item" }, "• rust + tokio"),
+    h("span", { class: "item" }, "• libsql"),
+    h("span", { class: "item" }, "• acp + claude-cli"),
+    h("span", { class: "spread" }),
+    h("span", { class: "item" }, fmtDate(new Date())),
+    h("span", { class: "item" }, "• 247420 / mmxxvi"),
+    h("span", { class: "item" }, "• " + (data?.project?.stamp || "probably emerging")),
+  );
+}

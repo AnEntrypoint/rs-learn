@@ -1,0 +1,10 @@
+crates/wasm/src/graph/attention.rs:245:253 empty_subgraph_returns_normalized_query
+fn empty_subgraph_returns_normalized_query() {
+        let a = Attention::new(64, 8, 8, 1);
+        let q = mk_emb(64, 3);
+        let ctx = a.attend(&q, &Subgraph::default(), 0).unwrap();
+        assert_eq!(ctx.vector.len(), 64);
+        assert!(ctx.weights.is_empty());
+        let mean: f32 = ctx.vector.iter().sum::<f32>() / 64.0;
+        assert!(mean.abs() < 1e-4, "layer_norm output should be ~zero mean, got {}", mean);
+    }

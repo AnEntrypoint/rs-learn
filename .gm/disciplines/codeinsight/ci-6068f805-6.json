@@ -1,0 +1,24 @@
+crates/wasm/src/dispatch.rs:493:515 end_to_end_deep_ewc_boundary_detection
+fn end_to_end_deep_ewc_boundary_detection() {
+        let mut s = LearnSession::new(MemKv::default());
+        for _ in 0..5 {
+            let r = call(&mut s, "record_loss", json!({ "loss": 0.5 }));
+            assert_eq!(r.get("boundary_fired").and_then(|v| v.as_bool()), Some(false));
+        }
+        let outlier = call(&mut s, "record_loss", json!({ "loss": 100.0 }));
+        assert_eq!(outlier.get("boundary_fired").and_then(|v| v.as_bool()), Some(true));
+
+        call(&mut s, "consolidate", json!({
+            "param_id": "adapter", "params": [0.1, 0.2, 0.3], "grads": [1.0, 1.0, 1.0],
+        }));
+        let penalty = call(&mut s, "ewc_penalty", json!({
+            "param_id": "adapter", "params": [1.0, 1.0, 1.0],
+        }));
+        let p = penalty.get("penalty").and_then(|v| v.as_f64()).unwrap();
+        assert!(p > 0.0, "ewc penalty for distance should be > 0, got {}", p);
+
+        let zero = call(&mut s, "ewc_penalty", json!({
+            "param_id": "adapter", "params": [0.1, 0.2, 0.3],
+        }));
+        assert_eq!(zero.get("penalty").and_then(|v| v.as_f64()), Some(0.0));
+    }

@@ -1,0 +1,9 @@
+crates/wasm/src/graph/attention_persist.rs:31:38 load_attention
+pub fn load_attention(key: &str) -> Result<Option<(Attention, u32)>> {
+    let bytes = wasm_host::kv_get(NS, key)?;
+    if bytes.is_empty() { return Ok(None); }
+    let blob: AttentionBlob = serde_json::from_slice(&bytes)?;
+    let mut a = Attention::new(blob.dim, blob.heads, blob.head_dim, blob.seed);
+    if blob.we.len() == a.we.len() { a.we = blob.we; }
+    Ok(Some((a, blob.seed)))
+}

@@ -1,0 +1,19 @@
+docs/app.js:117:134 LoopsView
+function LoopsView({ data }) {
+  const l = data.loops;
+  return [
+    h("h2", {}, l.title),
+    h("p", { class: "lede" }, l.intro),
+    h("div", { class: "panel" },
+      h("div", { class: "panel-body" }, ...l.items.map((lp, i) =>
+        h("div", { key: i, class: "row", style: "grid-template-columns:120px 160px 1fr" },
+          h("span", { class: "code" }, lp.badge),
+          h("span", { style: "font-family:var(--ff-mono);color:var(--panel-accent);font-size:12px" }, lp.freq + " · " + lp.method),
+          h("span", { class: "title" }, lp.name,
+            h("span", { style: "display:block;font-family:var(--ff-mono);font-size:12px;color:var(--panel-text-2);margin-top:4px;line-height:1.5" }, lp.body),
+          ),
+        )
+      )),
+    ),
+  ];
+}

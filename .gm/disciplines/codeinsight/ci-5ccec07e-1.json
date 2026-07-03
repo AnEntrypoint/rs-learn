@@ -1,0 +1,7 @@
+crates/wasm/src/graph/time.rs:68:73 roundtrip_recent
+fn roundtrip_recent() {
+        let ms = 1_779_431_805_882i64;
+        let s = format_iso(ms);
+        let back = parse_iso_ms(&s).unwrap();
+        assert_eq!(back / 1000, ms / 1000);
+    }

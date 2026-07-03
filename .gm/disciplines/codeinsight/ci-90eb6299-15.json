@@ -1,0 +1,18 @@
+crates/wasm/src/graph/temporal_core.rs:20:36 
+impl KvBackend for MemKv {
+    fn get(&self, namespace: &str, key: &str) -> Option<Vec<u8>> {
+        self.inner.get(&(namespace.to_string(), key.to_string())).cloned()
+    }
+    fn put(&mut self, namespace: &str, key: &str, val: &[u8]) -> Result<(), String> {
+        self.inner.insert((namespace.to_string(), key.to_string()), val.to_vec());
+        Ok(())
+    }
+    fn list_prefix(&self, namespace: &str, prefix: &str) -> Vec<String> {
+        let mut out: Vec<String> = self.inner.keys()
+            .filter(|(ns, k)| ns == namespace && k.starts_with(prefix))
+            .map(|(_, k)| k.clone())
+            .collect();
+        out.sort();
+        out
+    }
+}

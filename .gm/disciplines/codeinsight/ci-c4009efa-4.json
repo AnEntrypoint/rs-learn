@@ -1,0 +1,5 @@
+crates/wasm/src/pipeline.rs:62:65 mint_token
+pub fn mint_token(step_id: &str, kv_key: &str, deadline_ms: u64) -> Result<String, String> {
+    let payload = format!("{}|{}|{}", step_id, kv_key, deadline_ms);
+    Ok(format!("tkn_{}.{}", step_id, keyed_hash(&hmac_key()?, &payload)))
+}

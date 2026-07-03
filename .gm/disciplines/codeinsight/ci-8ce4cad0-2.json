@@ -1,0 +1,19 @@
+crates/wasm/src/router/persist.rs:11:28 RouterBlob
+struct RouterBlob {
+    in_dim: usize,
+    targets: Vec<String>,
+    epsilon: f32,
+    threshold: u64,
+    version: i64,
+    trained: bool,
+    trajectory_count: u64,
+    inference_count: u64,
+    per_target_counts: Vec<u64>,
+    per_target_quality_milli: Vec<u64>,
+    v: Vec<f32>, u: Vec<f32>, uh: Vec<f32>, bh: Vec<f32>, bz: Vec<f32>,
+    h_model: Vec<f32>, h_model_b: Vec<f32>,
+    h_ctx: Vec<f32>, h_ctx_b: Vec<f32>,
+    h_temp: Vec<f32>, h_temp_b: Vec<f32>,
+    h_top_p: Vec<f32>, h_top_p_b: Vec<f32>,
+    h_conf: Vec<f32>, h_conf_b: Vec<f32>,
+}

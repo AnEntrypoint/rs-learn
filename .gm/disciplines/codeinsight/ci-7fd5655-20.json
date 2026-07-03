@@ -1,0 +1,9 @@
+crates/wasm/src/router/core.rs:122:129 Fwd
+pub struct Fwd {
+    pub h: Vec<f32>,
+    pub ml: Vec<f32>,
+    pub cl: Vec<f32>,
+    pub tp: f32,
+    pub top_p: f32,
+    pub conf: f32,
+}

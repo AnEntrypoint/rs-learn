@@ -1,0 +1,12 @@
+crates/wasm/src/router/core.rs:408:418 adapter_can_override_route
+fn adapter_can_override_route() {
+        let mut r = mk_router(3, 384);
+        r.set_trained(true);
+        let emb = mk_emb(384, 6);
+        let base = r.route(&emb, &RouteCtx::default());
+        let biased = r.route_with_adapter(&emb, &RouteCtx::default(), |_, ml| {
+            let target = if base.model == "m0" { 2 } else { 0 };
+            ml[target] += 100.0;
+        });
+        assert_ne!(biased.model, base.model, "huge adapter bump should flip the route");
+    }

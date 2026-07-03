@@ -1,0 +1,7 @@
+crates/wasm/src/router/core.rs:337:342 record_outcome_unknown_target_is_noop
+fn record_outcome_unknown_target_is_noop() {
+        let mut r = mk_router(2, 384);
+        r.record_outcome("not_a_target", 1.0);
+        assert_eq!(r.per_target_counts[0], 0);
+        assert_eq!(r.per_target_counts[1], 0);
+    }

@@ -1,0 +1,9 @@
+crates/wasm/src/learn/persist.rs:14:21 AdapterBlob
+struct AdapterBlob {
+    adapter_a: Vec<f32>,
+    adapter_b: Vec<f32>,
+    targets: Vec<String>,
+    lr: f32,
+    feedback_count: u64,
+    resets: u64,
+}

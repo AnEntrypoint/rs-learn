@@ -39,7 +39,7 @@ pub extern "C" fn rs_learn_dispatch(ptr: *const u8, len: usize) -> u64 {
     let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
     let mut guard = match SESSION.lock() {
         Ok(g) => g,
-        Err(_) => return leak_bytes(br#"{"ok":false,"verb":"?","error":"session lock poisoned"}"#.to_vec()),
+        Err(poisoned) => poisoned.into_inner(),
     };
     if guard.is_none() {
         *guard = Some(LearnSession::new(HostKv));

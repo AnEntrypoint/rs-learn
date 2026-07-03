@@ -1,0 +1,17 @@
+docs/app.js:136:151 LayersView
+function LayersView({ data }) {
+  const l = data.layers;
+  return [
+    h("h2", {}, l.title),
+    h("p", { class: "lede" }, l.intro),
+    h("div", { class: "panel" },
+      h("div", { class: "panel-body" }, ...l.items.map((it, i) =>
+        h("div", { key: i, class: "row", style: "grid-template-columns:140px 1fr auto" },
+          h("span", { class: "code" }, it.code),
+          h("span", { class: "title" }, it.title),
+          h("span", { class: "meta" }, it.meta),
+        )
+      )),
+    ),
+  ];
+}

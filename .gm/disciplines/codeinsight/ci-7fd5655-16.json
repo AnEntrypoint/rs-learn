@@ -1,0 +1,12 @@
+crates/wasm/src/router/core.rs:173:183 Router
+pub struct Router {
+    pub config: RouterConfig,
+    pub w: Weights,
+    pub heads: Heads,
+    pub version: i64,
+    pub trained: bool,
+    pub trajectory_count: u64,
+    pub inference_count: u64,
+    pub per_target_counts: Vec<u64>,
+    pub per_target_quality_milli: Vec<u64>,
+}

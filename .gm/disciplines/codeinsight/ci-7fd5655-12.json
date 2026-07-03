@@ -1,0 +1,10 @@
+crates/wasm/src/router/core.rs:286:294 new_initializes_dims
+fn new_initializes_dims() {
+        let r = mk_router(3, 384);
+        assert_eq!(r.config.targets.len(), 3);
+        assert_eq!(r.w.v.len(), RANK * 384);
+        assert_eq!(r.w.u.len(), DIM * RANK);
+        assert_eq!(r.w.uh.len(), DIM * DIM);
+        assert_eq!(r.heads.model.len(), 3 * DIM);
+        assert_eq!(r.heads.ctx.len(), CTX_BUCKETS * DIM);
+    }

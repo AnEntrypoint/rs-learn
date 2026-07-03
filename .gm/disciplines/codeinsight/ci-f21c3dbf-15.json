@@ -1,0 +1,6 @@
+crates/wasm/src/learn/instant_core.rs:17:21 EwcState
+pub struct EwcState {
+    pub fisher: Vec<f32>,
+    pub snapshot: Vec<f32>,
+    pub lambda: f32,
+}

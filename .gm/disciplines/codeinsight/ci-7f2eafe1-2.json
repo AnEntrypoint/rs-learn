@@ -1,0 +1,8 @@
+crates/wasm/src/graph/attention_persist.rs:11:17 AttentionBlob
+struct AttentionBlob {
+    dim: usize,
+    heads: usize,
+    head_dim: usize,
+    seed: u32,
+    we: Vec<f32>,
+}

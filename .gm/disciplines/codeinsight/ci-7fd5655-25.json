@@ -1,0 +1,9 @@
+crates/wasm/src/router/core.rs:71:78 matvec
+fn matvec(m: &[f32], rows: usize, cols: usize, x: &[f32], out: &mut [f32]) {
+    for r in 0..rows {
+        let mut s = 0f32;
+        let off = r * cols;
+        for c in 0..cols { s += m[off + c] * x[c]; }
+        out[r] = s;
+    }
+}

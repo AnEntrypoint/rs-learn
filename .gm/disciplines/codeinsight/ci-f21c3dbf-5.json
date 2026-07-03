@@ -1,0 +1,13 @@
+crates/wasm/src/learn/instant_core.rs:215:226 positive_feedback_grows_norm_under_bound
+fn positive_feedback_grows_norm_under_bound() {
+        let mut core = InstantCore::new(vec!["m".into()]);
+        let emb = make_emb(7);
+        let mut prev = 0f32;
+        for i in 0..100 {
+            core.feedback(&emb, "m", FeedbackPayload { quality: 1.0, signal: None }, i as i64).unwrap();
+            let n = core.adapter_norm();
+            assert!(n <= MAX_ADAPTER_NORM + 1e-4, "norm {} exceeded bound at step {}", n, i);
+            prev = n;
+        }
+        assert!(prev > 0.0, "norm did not grow under positive feedback");
+    }

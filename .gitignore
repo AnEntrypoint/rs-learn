@@ -65,6 +65,11 @@ docs/data/
 .gm/prd.yml
 .gm/turn-state.json.corrupted-*
 .code-search/
+.gm/last-dispatch-ts
+.gm/last-instruction-ts
+.gm/last-prompt.txt
+.gm/long-gap-retry-state
 # tracked: .gm/rs-learn.db, .gm/code-search/, AGENTS.md
 # <<< gm managed
 .codeinsight/
+.gm/pw-sock-*/

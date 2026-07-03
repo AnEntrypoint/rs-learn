@@ -1,0 +1,5 @@
+crates/wasm/src/learn/deep_core.rs:140:143 consolidate_rejects_length_mismatch
+fn consolidate_rejects_length_mismatch() {
+        let mut d = DeepCore::new();
+        assert!(d.consolidate("p", &[1.0; 4], &[1.0; 3]).is_err());
+    }

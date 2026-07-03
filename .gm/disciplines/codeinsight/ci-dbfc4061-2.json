@@ -1,0 +1,11 @@
+crates/wasm/src/graph/types.rs:15:24 NodeRow
+pub struct NodeRow {
+    pub id: String,
+    pub name: String,
+    pub r#type: Option<String>,
+    pub summary: Option<String>,
+    pub embedding: Option<Vec<f32>>,
+    pub level: Option<i64>,
+    pub group_id: Option<String>,
+    pub created_at: Option<i64>,
+}

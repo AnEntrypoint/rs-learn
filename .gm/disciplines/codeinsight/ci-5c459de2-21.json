@@ -1,0 +1,12 @@
+crates/wasm/src/graph/attention.rs:23:33 
+impl From<&EdgeRow> for SubgraphEdge {
+    fn from(e: &EdgeRow) -> Self {
+        Self {
+            src: e.src.clone(),
+            dst: e.dst.clone(),
+            relation: e.relation.clone(),
+            weight: e.weight.map(|w| w as f32),
+            created_at: e.created_at,
+        }
+    }
+}

@@ -1,0 +1,12 @@
+docs/app.js:153:163 DebugView
+function DebugView({ data }) {
+  const d = data.debug;
+  return [
+    h("h2", {}, d.title),
+    h("p", { class: "lede" }, d.intro),
+    h("pre", { class: "panel", style: "padding:16px;overflow-x:auto;font-family:var(--ff-mono);font-size:12px;line-height:1.5;color:var(--panel-text-2);white-space:pre" }, d.ascii),
+    h("div", { style: "display:flex;flex-direction:column;gap:8px;margin-top:16px" },
+      ...d.curls.map((c, i) => Copyable({ text: c, id: "curl-" + i })),
+    ),
+  ];
+}

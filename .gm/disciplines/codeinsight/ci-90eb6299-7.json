@@ -1,0 +1,7 @@
+crates/wasm/src/graph/temporal_core.rs:216:221 insert_rejects_inverted_interval
+fn insert_rejects_inverted_interval() {
+        let mut g = TemporalGraph::new(MemKv::default());
+        let mut e = mk_edge("e1", "alice", "acme", 2000);
+        e.invalid_at = Some(1000);
+        assert!(g.insert_edge(e).is_err());
+    }

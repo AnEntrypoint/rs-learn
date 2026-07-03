@@ -1,0 +1,10 @@
+crates/wasm/src/router/core.rs:55:63 mulberry32
+pub fn mulberry32(mut a: u32) -> impl FnMut() -> f32 {
+    move || {
+        a = a.wrapping_add(0x6D2B_79F5);
+        let mut t = a;
+        t = (t ^ (t >> 15)).wrapping_mul(t | 1);
+        t ^= t.wrapping_add((t ^ (t >> 7)).wrapping_mul(t | 61));
+        ((t ^ (t >> 14)) as f32) / 4_294_967_296.0
+    }
+}

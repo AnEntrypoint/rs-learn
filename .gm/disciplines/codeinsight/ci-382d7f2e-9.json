@@ -1,0 +1,14 @@
+crates/wasm/src/learn/deep_core.rs:125:137 fisher_ema_accumulates
+fn fisher_ema_accumulates() {
+        let mut d = DeepCore::with_lambda(1.0);
+        let params = vec![0.5f32; 4];
+        let grads = vec![1.0f32; 4];
+        d.consolidate("p", &params, &grads).unwrap();
+        let f1 = d.fisher.get("p").unwrap().clone();
+        assert!(f1[0] > 0.0 && f1[0] < 1.0, "first EMA step should land between 0 and 1, got {}", f1[0]);
+
+        for _ in 0..1000 { d.consolidate("p", &params, &grads).unwrap(); }
+        let f2 = d.fisher.get("p").unwrap().clone();
+        assert!(f2[0] > f1[0], "Fisher should grow under repeated unit grads");
+        assert!(f2[0] < 1.001, "Fisher EMA bounded above by g^2 sup, got {}", f2[0]);
+    }

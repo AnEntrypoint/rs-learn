@@ -1,0 +1,6 @@
+crates/wasm/src/graph/temporal_core.rs:9:13 KvBackend
+pub trait KvBackend {
+    fn get(&self, namespace: &str, key: &str) -> Option<Vec<u8>>;
+    fn put(&mut self, namespace: &str, key: &str, val: &[u8]) -> Result<(), String>;
+    fn list_prefix(&self, namespace: &str, prefix: &str) -> Vec<String>;
+}

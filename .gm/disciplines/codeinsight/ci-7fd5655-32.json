@@ -1,0 +1,5 @@
+crates/wasm/src/router/core.rs:20:23 RouteCtx
+pub struct RouteCtx {
+    pub task_type: Option<String>,
+    pub estimated_tokens: u64,
+}

@@ -1,0 +1,87 @@
+crates/wasm/src/router/core.rs:185:270 
+impl Router {
+    pub fn new(config: RouterConfig) -> Result<Self, String> {
+        if config.targets.is_empty() { return Err("router: targets required".into()); }
+        let nt = config.targets.len();
+        let w = init_weights(config.in_dim);
+        let heads = init_heads(nt);
+        Ok(Self {
+            config,
+            w, heads,
+            version: 0,
+            trained: false,
+            trajectory_count: 0,
+            inference_count: 0,
+            per_target_counts: vec![0u64; nt],
+            per_target_quality_milli: vec![500u64; nt],
+        })
+    }
+
+    pub fn record_outcome(&mut self, target: &str, quality: f32) {
+        let idx = match self.config.targets.iter().position(|t| t == target) {
+            Some(i) => i, None => return,
+        };
+        let q = quality.clamp(0.0, 1.0) as f64;
+        let prior = self.per_target_quality_milli[idx] as f64 / 1000.0;
+        let alpha = 0.1;
+        let new_q = (1.0 - alpha) * prior + alpha * q;
+        self.per_target_quality_milli[idx] = (new_q * 1000.0) as u64;
+        self.per_target_counts[idx] += 1;
+    }
+
+    pub fn route(&mut self, emb: &[f32], ctx: &RouteCtx) -> Route {
+        self.route_with_adapter(emb, ctx, |_, _| {})
+    }
+
+    pub fn route_with_adapter<F: Fn(&[f32], &mut [f32])>(&mut self, emb: &[f32], ctx: &RouteCtx, adapter: F) -> Route {
+        self.inference_count += 1;
+        if !self.trained {
+            return Route {
+                model: self.config.targets[0].clone(),
+                context_bucket: bucket_for_tokens(ctx.estimated_tokens),
+                temperature: 0.7, top_p: 0.9, confidence: 0.5,
+                algo: "rule", exploration: false,
+            };
+        }
+        let f = forward(&self.w, &self.heads, emb, self.config.in_dim, self.config.targets.len());
+        let mut ml = f.ml.clone();
+        adapter(emb, &mut ml);
+        let (argmax_idx, p) = softmax_argmax(&ml);
+        let (cb, _) = softmax_argmax(&f.cl);
+        let nt = self.config.targets.len();
+        let eps = self.config.epsilon.clamp(0.0, 1.0);
+        let (idx, exploration) = if nt > 1 && eps > 0.0 {
+            let seed = SEED ^ (self.inference_count as u32);
+            let mut rng = mulberry32(seed);
+            if rng() < eps {
+                let mut alt = (rng() * (nt as f32 - 1.0)) as usize;
+                if alt >= argmax_idx { alt += 1; }
+                if alt >= nt { alt = nt - 1; }
+                (alt, true)
+            } else {
+                (argmax_idx, false)
+            }
+        } else {
+            (argmax_idx, false)
+        };
+        Route {
+            model: self.config.targets[idx].clone(),
+            context_bucket: cb as u8,
+            temperature: f.tp,
+            top_p: f.top_p,
+            confidence: f.conf * p,
+            algo: "fastgrnn",
+            exploration,
+        }
+    }
+
+    pub fn set_trained(&mut self, trained: bool) {
+        self.trained = trained;
+        self.version += 1;
+    }
+
+    pub fn sparsity_fraction(&self) -> f32 {
+        let zeros = self.w.u.iter().filter(|&&x| x == 0.0).count() as f32;
+        zeros / self.w.u.len() as f32
+    }
+}

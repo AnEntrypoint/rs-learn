@@ -1,0 +1,5 @@
+crates/wasm/src/router/core.rs:276:279 mk_router
+fn mk_router(n_targets: usize, in_dim: usize) -> Router {
+        let targets: Vec<String> = (0..n_targets).map(|i| format!("m{}", i)).collect();
+        Router::new(RouterConfig::new(in_dim, targets)).unwrap()
+    }

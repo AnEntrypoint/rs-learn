@@ -1,0 +1,18 @@
+crates/wasm/src/dispatch.rs:460:476 end_to_end_router_routes_and_records
+fn end_to_end_router_routes_and_records() {
+        let mut s = LearnSession::new(MemKv::default());
+        call(&mut s, "init_router", json!({
+            "in_dim": 384, "targets": ["gpt", "claude", "local"], "trained": false,
+        }));
+        let route = call(&mut s, "route", json!({
+            "embedding": mk_emb(384, 1), "estimated_tokens": 500,
+        }));
+        assert_eq!(route.get("algo").and_then(|v| v.as_str()), Some("rule"));
+        assert_eq!(route.get("model").and_then(|v| v.as_str()), Some("gpt"));
+
+        let outcome = call(&mut s, "record_outcome", json!({
+            "target": "gpt", "quality": 0.9,
+        }));
+        assert_eq!(outcome.get("count").and_then(|v| v.as_u64()), Some(1));
+        assert!(outcome.get("quality_milli").and_then(|v| v.as_u64()).unwrap() > 500);
+    }

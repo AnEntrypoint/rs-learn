@@ -1,0 +1,4 @@
+crates/wasm/src/graph/temporal_core.rs:44:46 TemporalGraph
+pub struct TemporalGraph<B: KvBackend> {
+    pub kv: B,
+}

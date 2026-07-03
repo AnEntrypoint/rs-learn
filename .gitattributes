@@ -5,3 +5,7 @@ npm/*.js text eol=lf
 *.rs text eol=lf
 Cargo.toml text eol=lf
 Cargo.lock text eol=lf
+*.db binary -diff -merge
+*.db-shm binary -diff -merge
+*.db-wal binary -diff -merge
+.gm/rs-learn.db binary -diff -merge

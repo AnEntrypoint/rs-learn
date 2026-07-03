@@ -1,0 +1,7 @@
+crates/wasm/src/learn/instant_core.rs:36:41 dot
+fn dot(a: &[f32], b: &[f32]) -> f32 {
+    debug_assert_eq!(a.len(), b.len());
+    let mut s = 0f32;
+    for i in 0..a.len() { s += a[i] * b[i]; }
+    s
+}

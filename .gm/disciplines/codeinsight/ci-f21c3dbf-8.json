@@ -1,0 +1,8 @@
+crates/wasm/src/learn/instant_core.rs:192:198 read_lr_min
+fn read_lr_min() -> f32 {
+    std::env::var("RS_LEARN_LR_MIN").ok()
+        .and_then(|s| s.parse::<f32>().ok())
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .unwrap_or(1e-3)
+        .min(LR0)
+}

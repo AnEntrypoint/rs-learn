@@ -1,0 +1,4 @@
+docs/app.js:238:240 render
+function render() {
+  webjsx.applyDiff(document.getElementById("root"), App({ data: state.data, error: state.error }));
+}

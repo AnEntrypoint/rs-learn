@@ -1,0 +1,13 @@
+crates/wasm/src/learn/instant_core.rs:23:34 InstantCore
+pub struct InstantCore {
+    pub adapter_a: Vec<f32>,
+    pub adapter_b: Vec<f32>,
+    pub targets: Vec<String>,
+    pub n_targets: usize,
+    pub lr: f32,
+    pub lr_min: f32,
+    pub ewc: Option<EwcState>,
+    pub replay_buf: std::collections::VecDeque<(Vec<f32>, usize, f32)>,
+    pub feedback_count: u64,
+    pub resets_performed: u64,
+}

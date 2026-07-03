@@ -1,0 +1,12 @@
+crates/wasm/src/router/core.rs:395:405 epsilon_one_always_explores
+fn epsilon_one_always_explores() {
+        let mut r = mk_router(3, 384);
+        r.set_trained(true);
+        r.config.epsilon = 1.0;
+        let mut exploration_count = 0;
+        for _ in 0..50 {
+            let route = r.route(&mk_emb(384, 5), &RouteCtx::default());
+            if route.exploration { exploration_count += 1; }
+        }
+        assert!(exploration_count > 40, "epsilon=1.0 should explore almost always, got {}/50", exploration_count);
+    }

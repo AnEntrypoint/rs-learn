@@ -1,0 +1,13 @@
+crates/wasm/src/learn/persist.rs:23:34 save_adapter
+pub fn save_adapter(core: &InstantCore, key: &str) -> Result<()> {
+    let blob = AdapterBlob {
+        adapter_a: core.adapter_a.clone(),
+        adapter_b: core.adapter_b.clone(),
+        targets: core.targets.clone(),
+        lr: core.lr,
+        feedback_count: core.feedback_count,
+        resets: core.resets_performed,
+    };
+    let json = serde_json::to_vec(&blob)?;
+    wasm_host::kv_put(NS_ADAPTER, key, &json)
+}

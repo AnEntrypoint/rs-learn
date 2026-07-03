@@ -1,0 +1,14 @@
+crates/wasm/src/pipeline.rs:27:39 hmac_key
+fn hmac_key() -> Result<String, String> {
+    let k = "RS_LEARN_PIPELINE_HMAC_KEY";
+    let packed = unsafe { host_env_get(k.as_ptr(), k.len() as u32) };
+    let ptr = (packed & 0xFFFF_FFFF) as u32;
+    let len = (packed >> 32) as u32;
+    if ptr != 0 && len != 0 {
+        let s = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
+        if !s.is_empty() {
+            return Ok(String::from_utf8_lossy(s).into_owned());
+        }
+    }
+    Err("RS_LEARN_PIPELINE_HMAC_KEY env var not set".into())
+}

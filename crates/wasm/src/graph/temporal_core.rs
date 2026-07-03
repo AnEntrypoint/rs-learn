@@ -53,6 +53,7 @@ impl<B: KvBackend> TemporalGraph<B> {
     pub fn insert_edge(&mut self, edge: EdgeRow) -> Result<(), String> {
         let id = edge.id.clone();
         if id.is_empty() { return Err("edge.id required".into()); }
+        if id.contains(',') { return Err("edge.id must not contain a comma (used as index delimiter)".into()); }
         if edge.src.is_empty() || edge.dst.is_empty() { return Err("edge.src and edge.dst required".into()); }
         if edge.valid_at.is_none() { return Err("edge.valid_at required (bi-temporal)".into()); }
         if edge.created_at.is_none() { return Err("edge.created_at required (system-time)".into()); }
@@ -67,14 +68,26 @@ impl<B: KvBackend> TemporalGraph<B> {
     }
 
     fn append_index(&mut self, ns: &str, key: &str, edge_id: &str) -> Result<(), String> {
-        let existing = self.kv.get(ns, key).unwrap_or_default();
-        let mut s = String::from_utf8(existing).unwrap_or_default();
-        if !s.split(',').any(|e| e == edge_id) {
+        const MAX_RETRIES: u32 = 8;
+        for _ in 0..MAX_RETRIES {
+            let before = self.kv.get(ns, key).unwrap_or_default();
+            let mut s = String::from_utf8(before.clone()).unwrap_or_default();
+            if s.split(',').any(|e| e == edge_id) {
+                return Ok(());
+            }
             if !s.is_empty() { s.push(','); }
             s.push_str(edge_id);
             self.kv.put(ns, key, s.as_bytes())?;
+            let after = self.kv.get(ns, key).unwrap_or_default();
+            if after == s.as_bytes() {
+                return Ok(());
+            }
+            let after_s = String::from_utf8(after).unwrap_or_default();
+            if after_s.split(',').any(|e| e == edge_id) {
+                return Ok(());
+            }
         }
-        Ok(())
+        Err(format!("append_index: failed to converge for key {} after {} retries", key, MAX_RETRIES))
     }
 
     pub fn get_edge(&self, edge_id: &str) -> Option<EdgeRow> {
@@ -115,7 +128,7 @@ impl<B: KvBackend> TemporalGraph<B> {
     pub fn invalidate_edge(&mut self, edge_id: &str, invalid_at: i64, expired_at: i64) -> Result<(), String> {
         let mut edge = self.get_edge(edge_id).ok_or_else(|| format!("edge {} not found", edge_id))?;
         if let Some(existing_iv) = edge.invalid_at {
-            if existing_iv <= invalid_at {
+            if existing_iv < invalid_at {
                 return Ok(());
             }
         }
@@ -324,5 +337,32 @@ mod tests {
             1000,
         ).unwrap();
         assert_eq!(outcome, InvalidationOutcome::Inserted { edge_id: "e1".into() });
+    }
+
+    #[test]
+    fn insert_rejects_comma_in_id() {
+        let mut g = TemporalGraph::new(MemKv::default());
+        let e = mk_edge("e1,evil", "alice", "acme", 1000);
+        assert!(g.insert_edge(e).is_err());
+    }
+
+    #[test]
+    fn invalidate_equal_timestamp_applies_update() {
+        let mut g = TemporalGraph::new(MemKv::default());
+        let mut e = mk_edge("e1", "alice", "acme", 1000);
+        e.invalid_at = Some(2000);
+        g.insert_edge(e).unwrap();
+        g.invalidate_edge("e1", 2000, 2500).unwrap();
+        assert_eq!(g.get_edge("e1").unwrap().expired_at, Some(2500));
+    }
+
+    #[test]
+    fn append_index_survives_many_sequential_inserts_same_key() {
+        let mut g = TemporalGraph::new(MemKv::default());
+        for i in 0..50 {
+            g.insert_edge(mk_edge(&format!("e{}", i), "hub", &format!("d{}", i), 1000 + i)).unwrap();
+        }
+        let edges = g.edges_by_src("hub");
+        assert_eq!(edges.len(), 50, "all 50 edges must be reachable via the src index, none dropped");
     }
 }

@@ -1,0 +1,23 @@
+crates/wasm/src/dispatch.rs:398:419 end_to_end_lora_feedback_loop_grows_then_resets
+fn end_to_end_lora_feedback_loop_grows_then_resets() {
+        let mut s = LearnSession::new(MemKv::default());
+        call(&mut s, "init_instant", json!({ "targets": ["fast", "slow"] }));
+        let emb = mk_emb(384, 1);
+        for i in 0..50 {
+            let r = call(&mut s, "feedback", json!({
+                "embedding": emb, "model": "fast",
+                "payload": { "quality": 1.0 },
+                "now_ms": i,
+            }));
+            let norm = r.get("adapter_norm").and_then(|v| v.as_f64()).unwrap();
+            assert!(norm <= 5.001, "norm {} exceeded bound at step {}", norm, i);
+        }
+        let after = call(&mut s, "feedback", json!({
+            "embedding": emb, "model": "fast",
+            "payload": { "quality": 1.0 }, "now_ms": 100,
+        }));
+        assert!(after.get("adapter_norm").and_then(|v| v.as_f64()).unwrap() > 0.0);
+
+        let reset = call(&mut s, "reset_adapter", json!({}));
+        assert_eq!(reset.get("resets_performed").and_then(|v| v.as_u64()), Some(1));
+    }

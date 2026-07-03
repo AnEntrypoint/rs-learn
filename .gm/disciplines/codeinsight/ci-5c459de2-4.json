@@ -1,0 +1,7 @@
+crates/wasm/src/graph/attention.rs:301:306 nudge_relation_known_changes_we
+fn nudge_relation_known_changes_we() {
+        let mut a = Attention::new(64, 8, 8, 1);
+        let before: Vec<f32> = a.we.clone();
+        a.nudge_relation("entity", 1.0);
+        assert_ne!(a.we, before);
+    }

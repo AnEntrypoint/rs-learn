@@ -1,0 +1,7 @@
+crates/wasm/src/graph/attention.rs:317:322 nudge_relation_non_finite_is_noop
+fn nudge_relation_non_finite_is_noop() {
+        let mut a = Attention::new(64, 8, 8, 1);
+        let before: Vec<f32> = a.we.clone();
+        a.nudge_relation("entity", f32::NAN);
+        assert_eq!(a.we, before);
+    }

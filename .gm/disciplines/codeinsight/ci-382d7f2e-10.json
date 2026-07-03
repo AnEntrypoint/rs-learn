@@ -1,0 +1,7 @@
+crates/wasm/src/learn/deep_core.rs:117:122 new_has_zero_state
+fn new_has_zero_state() {
+        let d = DeepCore::with_lambda(100.0);
+        assert_eq!(d.boundaries_detected, 0);
+        assert_eq!(d.loss_ring.len(), 0);
+        assert!(d.fisher.is_empty());
+    }

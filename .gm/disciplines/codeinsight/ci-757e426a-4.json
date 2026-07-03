@@ -1,0 +1,4 @@
+crates/wasm/src/wasm_host.rs:42:44 now_ms
+pub fn now_ms() -> i64 {
+    unsafe { host_now_ms() }
+}

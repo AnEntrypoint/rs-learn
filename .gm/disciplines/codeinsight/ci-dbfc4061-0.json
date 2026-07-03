@@ -1,0 +1,15 @@
+crates/wasm/src/graph/types.rs:42:55 
+impl EdgeRow {
+    pub fn active_at(&self, t: i64) -> bool {
+        let va = self.valid_at.unwrap_or(i64::MIN);
+        if va > t { return false; }
+        match self.invalid_at {
+            Some(iv) => t < iv,
+            None => true,
+        }
+    }
+
+    pub fn is_invalidated(&self) -> bool {
+        self.invalid_at.is_some()
+    }
+}

@@ -1,0 +1,19 @@
+docs/app.js:38:55 Side
+function Side() {
+  const groups = [
+    { group: "project", items: [["◆", "overview"], ["§", "pipeline"], ["§", "loops"], ["§", "layers"]] },
+    { group: "runtime", items: [["›", "observability"], ["›", "numbers"], ["›", "ci"]] },
+    { group: "links", items: [["↗", "source"], ["↗", "crates.io"], ["↗", "releases"]] },
+  ];
+  return h("aside", { class: "app-side" }, ...groups.flatMap(sec => [
+    h("div", { class: "group", key: sec.group }, sec.group),
+    ...sec.items.map(([glyph, label], i) => h("a", {
+      key: sec.group + i, href: "#",
+      class: state.tab === label ? "active" : "",
+      onclick: (e) => { e.preventDefault(); if (TABS.includes(label)) { state.tab = label; render(); } },
+    },
+      h("span", { class: "glyph" }, glyph),
+      h("span", {}, label),
+    )),
+  ]));
+}

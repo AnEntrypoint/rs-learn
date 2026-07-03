@@ -1,0 +1,8 @@
+crates/wasm/src/learn/deep_core.rs:193:199 window_stats_match_ring
+fn window_stats_match_ring() {
+        let mut d = DeepCore::new();
+        for x in [1.0, 2.0, 3.0, 4.0, 5.0] { d.record_loss(x); }
+        let (mean, _stddev, n) = d.window_stats();
+        assert_eq!(n, 5);
+        assert!((mean - 3.0).abs() < 1e-5);
+    }

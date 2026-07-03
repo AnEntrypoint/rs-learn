@@ -1,0 +1,11 @@
+crates/wasm/src/dispatch.rs:595:604 dispatch_json_roundtrip
+fn dispatch_json_roundtrip() {
+        let mut s = LearnSession::new(MemKv::default());
+        let raw = serde_json::to_vec(&json!({
+            "verb": "health", "body": {},
+        })).unwrap();
+        let resp_bytes = dispatch_json(&mut s, &raw);
+        let resp: Value = serde_json::from_slice(&resp_bytes).unwrap();
+        assert_eq!(resp.get("ok").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(resp.get("verb").and_then(|v| v.as_str()), Some("health"));
+    }

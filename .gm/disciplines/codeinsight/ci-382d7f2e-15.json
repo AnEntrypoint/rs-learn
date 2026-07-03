@@ -1,0 +1,9 @@
+crates/wasm/src/learn/deep_core.rs:9:16 DeepCore
+pub struct DeepCore {
+    pub lambda: f32,
+    pub loss_ring: VecDeque<f32>,
+    pub ring_cap: usize,
+    pub fisher: HashMap<String, Vec<f32>>,
+    pub params_snapshot: HashMap<String, Vec<f32>>,
+    pub boundaries_detected: u64,
+}

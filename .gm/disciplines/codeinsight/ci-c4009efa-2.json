@@ -1,0 +1,4 @@
+crates/wasm/src/pipeline.rs:78:80 needs_summarize
+pub fn needs_summarize(text: &str) -> bool {
+    text.len() > SUMMARIZE_THRESHOLD
+}

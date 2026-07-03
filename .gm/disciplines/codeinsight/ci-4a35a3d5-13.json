@@ -1,0 +1,13 @@
+docs/app.js:57:68 Copyable
+function Copyable({ text, id }) {
+  const on = () => {
+    navigator.clipboard?.writeText(text);
+    state.copied = id; render();
+    setTimeout(() => { state.copied = null; render(); }, 1200);
+  };
+  return h("div", { class: "cli" },
+    h("span", { class: "prompt" }, "$"),
+    h("span", { class: "cmd" }, text),
+    h("span", { class: "copy", onclick: on }, state.copied === id ? "copied" : "copy"),
+  );
+}

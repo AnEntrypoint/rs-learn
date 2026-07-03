@@ -1,0 +1,9 @@
+crates/wasm/src/learn/instant_core.rs:239:246 lr_floor_respected
+fn lr_floor_respected() {
+        let mut core = InstantCore::new(vec!["m".into()]);
+        let emb = make_emb(11);
+        for i in 0..10_000 {
+            core.feedback(&emb, "m", FeedbackPayload { quality: 0.6, signal: None }, i).unwrap();
+        }
+        assert!(core.lr >= core.lr_min - 1e-9, "lr {} fell below floor {}", core.lr, core.lr_min);
+    }

@@ -1,0 +1,10 @@
+crates/wasm/src/graph/types.rs:4:12 EpisodeRow
+pub struct EpisodeRow {
+    pub id: String,
+    pub content: String,
+    pub source: Option<String>,
+    pub group_id: Option<String>,
+    pub created_at: Option<i64>,
+    pub valid_at: Option<i64>,
+    pub invalid_at: Option<i64>,
+}

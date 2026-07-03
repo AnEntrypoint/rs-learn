@@ -15,3 +15,5 @@ Per-discipline isolation: each discipline owns `<project>/.gm/disciplines/<name>
 Comments in source are forbidden — no `//`, `/* */`, or doc-comments in shipped code.
 
 Push to trigger CI; never run `cargo build` or `cargo update` locally.
+
+@.gm/next-step.md

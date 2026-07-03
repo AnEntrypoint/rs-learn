@@ -1,0 +1,14 @@
+crates/wasm/src/graph/attention.rs:47:59 Attention
+pub struct Attention {
+    pub dim: usize,
+    pub heads: usize,
+    pub head_dim: usize,
+    pub proj_dim: usize,
+    pub edge_feat_dim: usize,
+    pub wq: Vec<f32>,
+    pub wk: Vec<f32>,
+    pub wv: Vec<f32>,
+    pub we: Vec<f32>,
+    pub wo: Vec<f32>,
+    pub inv_sqrt_head: f32,
+}

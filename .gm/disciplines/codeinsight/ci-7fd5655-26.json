@@ -1,0 +1,6 @@
+crates/wasm/src/router/core.rs:65:69 randn
+fn randn(rnd: &mut dyn FnMut() -> f32) -> f32 {
+    let u = rnd().max(1e-9);
+    let v = rnd();
+    (-2.0 * u.ln()).sqrt() * (2.0 * core::f32::consts::PI * v).cos()
+}

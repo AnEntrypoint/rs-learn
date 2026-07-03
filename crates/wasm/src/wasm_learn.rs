@@ -31,7 +31,7 @@ impl Learn {
 
     pub fn memorize(&self, text: &str, namespace: &str) -> Result<()> {
         let now = wasm_host::now_ms();
-        let key = format!("{}-{}", now, blake_short(text));
+        let key = format!("{}-{}", now, fnv1a_short(text));
         wasm_host::kv_put(namespace, &key, text.as_bytes())?;
         wasm_host::kv_put("pending_index", &key, namespace.as_bytes())?;
         wasm_host::log(&format!("memorize ns={} key={}", namespace, key));
@@ -45,7 +45,7 @@ impl Default for Learn {
     }
 }
 
-fn blake_short(text: &str) -> String {
+fn fnv1a_short(text: &str) -> String {
     let mut h: u64 = 1469598103934665603;
     for b in text.as_bytes() {
         h ^= *b as u64;

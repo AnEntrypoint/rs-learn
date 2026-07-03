@@ -1,0 +1,6 @@
+crates/wasm/src/learn/instant_core.rs:11:15 FeedbackPayload
+pub struct FeedbackPayload {
+    pub quality: f32,
+    #[serde(default)]
+    pub signal: Option<String>,
+}

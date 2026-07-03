@@ -145,8 +145,8 @@ impl InstantCore {
     pub fn feedback(&mut self, embedding: &[f32], model: &str, payload: FeedbackPayload, now_ms: i64) -> Result<(), &'static str> {
         if !(0.0..=1.0).contains(&payload.quality) { return Err("quality must be 0..1"); }
         if embedding.len() != IN { return Err("embedding wrong dim"); }
+        let idx = match self.target_index(model) { Some(i) => i, None => return Err("unknown model name; not in registered targets") };
         self.feedback_count += 1;
-        let idx = match self.target_index(model) { Some(i) => i, None => return Ok(()) };
         let centered = payload.quality - 0.5;
         if centered.abs() < 1e-4 { return Ok(()); }
         let scale = centered * 2.0;
@@ -266,10 +266,12 @@ mod tests {
     }
 
     #[test]
-    fn unknown_target_is_noop() {
+    fn unknown_target_errors() {
         let mut core = InstantCore::new(vec!["m".into()]);
         let emb = make_emb(9);
-        core.feedback(&emb, "unknown", FeedbackPayload { quality: 1.0, signal: None }, 1).unwrap();
+        let err = core.feedback(&emb, "unknown", FeedbackPayload { quality: 1.0, signal: None }, 1);
+        assert!(err.is_err());
         assert_eq!(core.adapter_norm(), 0.0);
+        assert_eq!(core.feedback_count, 0);
     }
 }

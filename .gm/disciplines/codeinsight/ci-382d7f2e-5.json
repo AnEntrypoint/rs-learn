@@ -1,0 +1,10 @@
+crates/wasm/src/learn/deep_core.rs:165:173 z_score_boundary_fires_on_outlier
+fn z_score_boundary_fires_on_outlier() {
+        let mut d = DeepCore::new();
+        for _ in 0..5 { d.record_loss(0.5); }
+        let fired = d.record_loss(0.5);
+        assert!(!fired);
+        let fired_outlier = d.record_loss(100.0);
+        assert!(fired_outlier, "z-score outlier should fire boundary");
+        assert_eq!(d.boundaries_detected, 1);
+    }

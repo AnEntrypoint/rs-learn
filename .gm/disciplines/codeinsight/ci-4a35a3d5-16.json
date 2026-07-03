@@ -1,0 +1,14 @@
+docs/app.js:12:24 Topbar
+function Topbar() {
+  return h("header", { class: "app-topbar" },
+    h("span", { class: "brand" }, "247420", h("span", { class: "slash" }, " / "), "rs-learn"),
+    h("nav", {},
+      ...TABS.map(t => h("a", {
+        href: "#", key: t,
+        class: state.tab === t ? "active" : "",
+        onclick: (e) => { e.preventDefault(); state.tab = t; render(); }
+      }, t)),
+      h("a", { href: "https://github.com/AnEntrypoint/rs-learn", target: "_blank", rel: "noopener" }, "source ↗"),
+    ),
+  );
+}

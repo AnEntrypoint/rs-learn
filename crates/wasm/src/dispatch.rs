@@ -7,6 +7,15 @@ use crate::router::core::{Route, RouteCtx, Router, RouterConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+#[cfg(target_arch = "wasm32")]
+fn session_key(body: &Value) -> String {
+    body.get("session_key")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("default")
+        .to_string()
+}
+
 #[derive(Deserialize)]
 pub struct DispatchRequest {
     pub verb: String,
@@ -138,17 +147,21 @@ impl<B: KvBackend> LearnSession<B> {
             .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
             .ok_or("targets required (string array)")?;
         if targets.is_empty() { return Err("targets must not be empty".into()); }
+        #[cfg(target_arch = "wasm32")]
+        let session_key = session_key(&body);
         let core = InstantCore::new(targets.clone());
         #[cfg(target_arch = "wasm32")]
-        crate::learn::persist::save_adapter(&core, "default").map_err(|e| format!("save_adapter: {:?}", e))?;
+        crate::learn::persist::save_adapter(&core, &session_key).map_err(|e| format!("save_adapter: {:?}", e))?;
         self.instant = Some(core);
         Ok(json!({ "n_targets": targets.len() }))
     }
 
     fn handle_feedback(&mut self, body: Value) -> Result<Value, String> {
         #[cfg(target_arch = "wasm32")]
+        let session_key = session_key(&body);
+        #[cfg(target_arch = "wasm32")]
         if self.instant.is_none() {
-            if let Some(c) = crate::learn::persist::load_adapter("default").map_err(|e| format!("load_adapter: {:?}", e))? {
+            if let Some(c) = crate::learn::persist::load_adapter(&session_key).map_err(|e| format!("load_adapter: {:?}", e))? {
                 self.instant = Some(c);
             }
         }
@@ -169,7 +182,7 @@ impl<B: KvBackend> LearnSession<B> {
         #[cfg(target_arch = "wasm32")]
         {
             let core = self.instant.as_ref().unwrap();
-            crate::learn::persist::save_adapter(core, "default").map_err(|e| format!("save_adapter: {:?}", e))?;
+            crate::learn::persist::save_adapter(core, &session_key).map_err(|e| format!("save_adapter: {:?}", e))?;
         }
         Ok(resp)
     }
@@ -177,7 +190,8 @@ impl<B: KvBackend> LearnSession<B> {
     fn handle_apply_adapter(&mut self, body: Value) -> Result<Value, String> {
         #[cfg(target_arch = "wasm32")]
         if self.instant.is_none() {
-            if let Some(c) = crate::learn::persist::load_adapter("default").map_err(|e| format!("load_adapter: {:?}", e))? {
+            let session_key = session_key(&body);
+            if let Some(c) = crate::learn::persist::load_adapter(&session_key).map_err(|e| format!("load_adapter: {:?}", e))? {
                 self.instant = Some(c);
             }
         }
@@ -190,11 +204,13 @@ impl<B: KvBackend> LearnSession<B> {
         Ok(json!({ "logits": logits, "targets": core.targets }))
     }
 
-    fn handle_reset_adapter(&mut self, _body: Value) -> Result<Value, String> {
+    fn handle_reset_adapter(&mut self, #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))] body: Value) -> Result<Value, String> {
+        #[cfg(target_arch = "wasm32")]
+        let session_key = session_key(&body);
         let core = self.instant.as_mut().ok_or("instant not initialized")?;
         core.reset_adapter();
         #[cfg(target_arch = "wasm32")]
-        crate::learn::persist::save_adapter(core, "default").map_err(|e| format!("save_adapter: {:?}", e))?;
+        crate::learn::persist::save_adapter(core, &session_key).map_err(|e| format!("save_adapter: {:?}", e))?;
         Ok(json!({ "resets_performed": core.resets_performed }))
     }
 
@@ -245,10 +261,12 @@ impl<B: KvBackend> LearnSession<B> {
         if let Some(eps) = body.get("epsilon").and_then(|v| v.as_f64()) { cfg.epsilon = eps as f32; }
         if let Some(thr) = body.get("threshold").and_then(|v| v.as_u64()) { cfg.threshold = thr; }
         let trained = body.get("trained").and_then(|v| v.as_bool()).unwrap_or(false);
+        #[cfg(target_arch = "wasm32")]
+        let session_key = session_key(&body);
         let mut r = Router::new(cfg).map_err(|e| e)?;
         if trained { r.set_trained(true); }
         #[cfg(target_arch = "wasm32")]
-        crate::router::persist::save_router(&r, "default").map_err(|e| format!("save_router: {:?}", e))?;
+        crate::router::persist::save_router(&r, &session_key).map_err(|e| format!("save_router: {:?}", e))?;
         self.router = Some(r);
         Ok(json!({ "ready": true, "trained": trained }))
     }
@@ -256,7 +274,8 @@ impl<B: KvBackend> LearnSession<B> {
     fn handle_route(&mut self, body: Value) -> Result<Value, String> {
         #[cfg(target_arch = "wasm32")]
         if self.router.is_none() {
-            if let Some(r) = crate::router::persist::load_router("default").map_err(|e| format!("load_router: {:?}", e))? {
+            let session_key = session_key(&body);
+            if let Some(r) = crate::router::persist::load_router(&session_key).map_err(|e| format!("load_router: {:?}", e))? {
                 self.router = Some(r);
             }
         }
@@ -284,8 +303,10 @@ impl<B: KvBackend> LearnSession<B> {
 
     fn handle_record_outcome(&mut self, body: Value) -> Result<Value, String> {
         #[cfg(target_arch = "wasm32")]
+        let session_key = session_key(&body);
+        #[cfg(target_arch = "wasm32")]
         if self.router.is_none() {
-            if let Some(r) = crate::router::persist::load_router("default").map_err(|e| format!("load_router: {:?}", e))? {
+            if let Some(r) = crate::router::persist::load_router(&session_key).map_err(|e| format!("load_router: {:?}", e))? {
                 self.router = Some(r);
             }
         }
@@ -294,7 +315,7 @@ impl<B: KvBackend> LearnSession<B> {
         let quality = body.get("quality").and_then(|v| v.as_f64()).ok_or("quality required")? as f32;
         r.record_outcome(target, quality);
         #[cfg(target_arch = "wasm32")]
-        crate::router::persist::save_router(r, "default").map_err(|e| format!("save_router: {:?}", e))?;
+        crate::router::persist::save_router(r, &session_key).map_err(|e| format!("save_router: {:?}", e))?;
         let idx = r.config.targets.iter().position(|t| t == target);
         Ok(json!({
             "target": target,
@@ -309,9 +330,11 @@ impl<B: KvBackend> LearnSession<B> {
         let head_dim = body.get("head_dim").and_then(|v| v.as_u64()).unwrap_or((dim / heads) as u64) as usize;
         let seed = body.get("seed").and_then(|v| v.as_u64()).unwrap_or(42) as u32;
         if heads == 0 || head_dim == 0 || dim == 0 { return Err("dim/heads/head_dim must be > 0".into()); }
+        #[cfg(target_arch = "wasm32")]
+        let session_key = session_key(&body);
         let a = Attention::new(dim, heads, head_dim, seed);
         #[cfg(target_arch = "wasm32")]
-        crate::graph::attention_persist::save_attention(&a, seed, "default").map_err(|e| format!("save_attention: {:?}", e))?;
+        crate::graph::attention_persist::save_attention(&a, seed, &session_key).map_err(|e| format!("save_attention: {:?}", e))?;
         self.attention = Some(a);
         Ok(json!({ "dim": dim, "heads": heads, "head_dim": head_dim }))
     }
@@ -321,12 +344,13 @@ impl<B: KvBackend> LearnSession<B> {
         let quality = body.get("signed_quality").and_then(|v| v.as_f64()).ok_or("signed_quality required")? as f32;
         #[cfg(target_arch = "wasm32")]
         {
-            let (a, seed) = crate::graph::attention_persist::load_attention("default")
+            let session_key = session_key(&body);
+            let (a, seed) = crate::graph::attention_persist::load_attention(&session_key)
                 .map_err(|e| format!("load_attention: {:?}", e))?
                 .ok_or("attention not initialized; call init_attention first")?;
             let mut a = a;
             a.nudge_relation(&relation, quality);
-            crate::graph::attention_persist::save_attention(&a, seed, "default").map_err(|e| format!("save_attention: {:?}", e))?;
+            crate::graph::attention_persist::save_attention(&a, seed, &session_key).map_err(|e| format!("save_attention: {:?}", e))?;
             self.attention = Some(a);
             return Ok(json!({ "relation": relation, "nudged": true }));
         }
@@ -341,7 +365,8 @@ impl<B: KvBackend> LearnSession<B> {
     fn handle_attend(&mut self, body: Value) -> Result<Value, String> {
         #[cfg(target_arch = "wasm32")]
         if self.attention.is_none() {
-            if let Some((a, _s)) = crate::graph::attention_persist::load_attention("default").map_err(|e| format!("load_attention: {:?}", e))? {
+            let session_key = session_key(&body);
+            if let Some((a, _s)) = crate::graph::attention_persist::load_attention(&session_key).map_err(|e| format!("load_attention: {:?}", e))? {
                 self.attention = Some(a);
             }
         }

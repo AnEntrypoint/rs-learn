@@ -1,0 +1,6 @@
+crates/wasm/src/graph/attention.rs:86:90 dot
+fn dot(a: &[f32], b: &[f32]) -> f32 {
+    let mut s = 0f32;
+    for i in 0..a.len() { s += a[i] * b[i]; }
+    s
+}

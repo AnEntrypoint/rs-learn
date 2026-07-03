@@ -1,0 +1,77 @@
+crates/wasm/src/learn/deep_core.rs:18:93 
+impl DeepCore {
+    pub fn new() -> Self {
+        Self::with_lambda(read_lambda())
+    }
+
+    pub fn with_lambda(lambda: f32) -> Self {
+        Self {
+            lambda,
+            loss_ring: VecDeque::with_capacity(RING_CAP),
+            ring_cap: RING_CAP,
+            fisher: HashMap::new(),
+            params_snapshot: HashMap::new(),
+            boundaries_detected: 0,
+        }
+    }
+
+    pub fn consolidate(&mut self, param_id: &str, params: &[f32], grads: &[f32]) -> Result<(), &'static str> {
+        if params.len() != grads.len() {
+            return Err("consolidate: params/grads length mismatch");
+        }
+        let prev = self.fisher.entry(param_id.to_string())
+            .or_insert_with(|| vec![0f32; params.len()]);
+        if prev.len() != params.len() { prev.resize(params.len(), 0.0); }
+        for i in 0..params.len() {
+            let g2 = grads[i] * grads[i];
+            prev[i] = FISHER_DECAY * prev[i] + (1.0 - FISHER_DECAY) * g2;
+        }
+        self.params_snapshot.insert(param_id.to_string(), params.to_vec());
+        Ok(())
+    }
+
+    pub fn record_loss(&mut self, loss: f32) -> bool {
+        if !loss.is_finite() { return false; }
+        let prior: Vec<f32> = self.loss_ring.iter().copied().collect();
+        if self.loss_ring.len() >= self.ring_cap { self.loss_ring.pop_front(); }
+        self.loss_ring.push_back(loss);
+        if prior.len() < 3 { return false; }
+        let n = prior.len() as f32;
+        let mean = prior.iter().sum::<f32>() / n;
+        let var = prior.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / n;
+        let stddev = var.sqrt().max(MIN_STDDEV);
+        let z = (loss - mean).abs() / stddev;
+        if z > BOUNDARY_Z {
+            self.boundaries_detected += 1;
+            return true;
+        }
+        false
+    }
+
+    pub fn ewc_state(&self, param_id: &str) -> Option<(Vec<f32>, Vec<f32>, f32)> {
+        let f = self.fisher.get(param_id)?.clone();
+        let s = self.params_snapshot.get(param_id)?.clone();
+        if f.len() != s.len() || f.is_empty() { return None; }
+        Some((f, s, self.lambda))
+    }
+
+    pub fn ewc_penalty(&self, param_id: &str, params: &[f32]) -> f32 {
+        let f = match self.fisher.get(param_id) { Some(v) => v, None => return 0.0 };
+        let snap = match self.params_snapshot.get(param_id) { Some(v) => v, None => return 0.0 };
+        let n = params.len().min(f.len()).min(snap.len());
+        let mut sum = 0f32;
+        for i in 0..n {
+            let d = params[i] - snap[i];
+            sum += f[i] * d * d;
+        }
+        self.lambda * sum
+    }
+
+    pub fn window_stats(&self) -> (f32, f32, usize) {
+        let n = self.loss_ring.len();
+        if n == 0 { return (0.0, 0.0, 0); }
+        let mean = self.loss_ring.iter().sum::<f32>() / n as f32;
+        let var = self.loss_ring.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / n as f32;
+        (mean, var.sqrt(), n)
+    }
+}

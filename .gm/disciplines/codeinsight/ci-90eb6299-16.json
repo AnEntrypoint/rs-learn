@@ -1,0 +1,4 @@
+crates/wasm/src/graph/temporal_core.rs:16:18 MemKv
+pub struct MemKv {
+    inner: HashMap<(String, String), Vec<u8>>,
+}

@@ -1,0 +1,4 @@
+crates/wasm/src/dispatch.rs:379:381 mk_emb
+fn mk_emb(dim: usize, seed: u8) -> Vec<f32> {
+        (0..dim).map(|i| ((i as u8).wrapping_add(seed) as f32) / 255.0 - 0.5).collect()
+    }

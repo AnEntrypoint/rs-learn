@@ -1,0 +1,11 @@
+crates/wasm/src/graph/temporal_core.rs:204:213 insert_rejects_missing_required_fields
+fn insert_rejects_missing_required_fields() {
+        let mut g = TemporalGraph::new(MemKv::default());
+        let mut e = mk_edge("e1", "alice", "acme", 1000);
+        e.valid_at = None;
+        assert!(g.insert_edge(e).is_err());
+
+        let mut e2 = mk_edge("e2", "", "acme", 1000);
+        e2.src = String::new();
+        assert!(g.insert_edge(e2).is_err());
+    }

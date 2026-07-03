@@ -1,0 +1,5 @@
+crates/wasm/src/wasm_host.rs:88:91 vec_search
+pub fn vec_search(query: &str, k: u32) -> Result<Vec<u8>> {
+    let packed = unsafe { host_vec_search(query.as_ptr(), query.len() as u32, k) };
+    Ok(unsafe { take_bytes(packed) })
+}
