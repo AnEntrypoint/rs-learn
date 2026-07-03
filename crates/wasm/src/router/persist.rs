@@ -79,6 +79,17 @@ pub fn load_router(key: &str) -> Result<Option<Router>> {
         && w.u.len() == r.w.u.len()
         && w.uh.len() == r.w.uh.len()
         && h.model.len() == r.heads.model.len();
+    if blob.trained && !weights_match {
+        let msg = format!(
+            "router persist: dimension mismatch for key {}, reverting trained=false (v={} vs {}, u={} vs {}, uh={} vs {}, model={} vs {})",
+            key,
+            w.v.len(), r.w.v.len(),
+            w.u.len(), r.w.u.len(),
+            w.uh.len(), r.w.uh.len(),
+            h.model.len(), r.heads.model.len(),
+        );
+        wasm_host::log(&msg);
+    }
     if weights_match {
         r.w = w;
         r.heads = h;

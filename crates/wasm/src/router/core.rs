@@ -234,6 +234,11 @@ impl Router {
         let nt = self.config.targets.len();
         let eps = self.config.epsilon.clamp(0.0, 1.0);
         let (idx, exploration) = if nt > 1 && eps > 0.0 {
+            // Deterministic-per-inference-count by design: reseeding from SEED^inference_count
+            // makes exploration reproducible across replays of the same call sequence. A router
+            // instance shared across multiple sessions/threads, or multiple router instances run
+            // in parallel, will see correlated (not independent) exploration choices since the
+            // seed depends only on the local call counter, not on session/instance identity.
             let seed = SEED ^ (self.inference_count as u32);
             let mut rng = mulberry32(seed);
             if rng() < eps {

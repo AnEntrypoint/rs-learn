@@ -11,9 +11,6 @@ pub mod wasm_host;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm_export;
 
-#[cfg(target_arch = "wasm32")]
-pub mod pipeline;
-
 pub use errors::{LlmError, Result};
 pub use embeddings::EMBED_DIM;
 pub use learn::{InstantCore, FeedbackPayload, EwcState};

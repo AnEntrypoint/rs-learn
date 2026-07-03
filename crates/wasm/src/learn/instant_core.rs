@@ -45,19 +45,30 @@ fn axpy(scale: f32, src: &[f32], dst: &mut [f32]) {
     for i in 0..src.len() { dst[i] += scale * src[i]; }
 }
 
-fn weighted_pick(buf: &std::collections::VecDeque<(Vec<f32>, usize, f32)>, seed: &mut u32) -> usize {
+fn weighted_pick(buf: &std::collections::VecDeque<(Vec<f32>, usize, f32)>, seed: &mut u32, exclude: usize) -> Option<usize> {
     let n = buf.len();
+    if n <= 1 { return None; }
     *seed = seed.wrapping_mul(2654435761).wrapping_add(1);
     let r = (*seed as f32) / (u32::MAX as f32 + 1.0);
-    let total: f32 = buf.iter().map(|(_, _, s)| s.abs()).sum();
-    if !(total > 0.0) { return ((*seed as usize) % n).min(n - 1); }
+    let total: f32 = buf.iter().enumerate()
+        .filter(|(i, _)| *i != exclude)
+        .map(|(_, (_, _, s))| s.abs())
+        .sum();
+    if !(total > 0.0) {
+        let mut idx = (*seed as usize) % n;
+        if idx == exclude { idx = (idx + 1) % n; }
+        return Some(idx);
+    }
     let target = r * total;
     let mut acc = 0f32;
+    let mut last = None;
     for (i, (_, _, s)) in buf.iter().enumerate() {
+        if i == exclude { continue; }
         acc += s.abs();
-        if target < acc { return i; }
+        last = Some(i);
+        if target < acc { return Some(i); }
     }
-    n - 1
+    last
 }
 
 impl InstantCore {
@@ -153,11 +164,13 @@ impl InstantCore {
         self.hebbian_update(embedding, idx, scale);
         if self.replay_buf.len() >= REPLAY_CAP { self.replay_buf.pop_front(); }
         self.replay_buf.push_back((embedding.to_vec(), idx, scale));
+        let just_pushed = self.replay_buf.len() - 1;
         if self.replay_buf.len() >= 4 {
             let mut seed = (now_ms as u32).wrapping_mul(2654435761);
-            let pick = weighted_pick(&self.replay_buf, &mut seed);
-            let (re, ri, rs) = self.replay_buf[pick].clone();
-            self.hebbian_update(&re, ri, rs * 0.5);
+            if let Some(pick) = weighted_pick(&self.replay_buf, &mut seed, just_pushed) {
+                let (re, ri, rs) = self.replay_buf[pick].clone();
+                self.hebbian_update(&re, ri, rs * 0.5);
+            }
         }
         Ok(())
     }

@@ -344,6 +344,11 @@ impl<B: KvBackend> LearnSession<B> {
         let quality = body.get("signed_quality").and_then(|v| v.as_f64()).ok_or("signed_quality required")? as f32;
         #[cfg(target_arch = "wasm32")]
         {
+            // wasm32 treats kv as the source of truth, not self.attention: a fresh
+            // LearnSession (new worker, new call) has an empty in-memory field even
+            // when a prior call already persisted attention state for this session_key.
+            // So "not initialized" here is decided by the kv lookup, matching handle_attend's
+            // load-on-demand fallback, not by self.attention.is_none().
             let session_key = session_key(&body);
             let (a, seed) = crate::graph::attention_persist::load_attention(&session_key)
                 .map_err(|e| format!("load_attention: {:?}", e))?
@@ -356,6 +361,9 @@ impl<B: KvBackend> LearnSession<B> {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
+            // Non-wasm32 has no kv-persistence layer wired to LearnSession, so
+            // self.attention is the only source of truth: "not initialized" means
+            // this session object never had init_attention called on it.
             let a = self.attention.as_mut().ok_or("attention not initialized")?;
             a.nudge_relation(&relation, quality);
             Ok(json!({ "relation": relation, "nudged": true }))

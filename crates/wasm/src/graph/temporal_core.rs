@@ -67,9 +67,17 @@ impl<B: KvBackend> TemporalGraph<B> {
         Ok(())
     }
 
+    // Known perf tradeoff: KvBackend exposes only get/put/list_prefix, no O(1)
+    // append primitive, so each insert on a hub key re-reads and re-parses the
+    // entire comma-joined edge-id string (O(n) in that key's degree). The
+    // membership check + post-write byte comparison are correctness-required
+    // (detects duplicate inserts and lost updates from a concurrent writer),
+    // not incidental double work, so they are not candidates for removal.
+    // A true fix needs a delimited/length-prefixed append-only KvBackend
+    // primitive; deferred as a storage-format change out of scope here.
     fn append_index(&mut self, ns: &str, key: &str, edge_id: &str) -> Result<(), String> {
         const MAX_RETRIES: u32 = 8;
-        for _ in 0..MAX_RETRIES {
+        for attempt in 0..MAX_RETRIES {
             let before = self.kv.get(ns, key).unwrap_or_default();
             let mut s = String::from_utf8(before.clone()).unwrap_or_default();
             if s.split(',').any(|e| e == edge_id) {
@@ -86,8 +94,16 @@ impl<B: KvBackend> TemporalGraph<B> {
             if after_s.split(',').any(|e| e == edge_id) {
                 return Ok(());
             }
+            if attempt + 1 < MAX_RETRIES {
+                let jitter = (edge_id.len() as u64 + attempt as u64 * 7) % 5;
+                let backoff_ms = (attempt as u64 + 1) * 2 + jitter;
+                std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
+            }
         }
-        Err(format!("append_index: failed to converge for key {} after {} retries", key, MAX_RETRIES))
+        Err(format!(
+            "append_index: failed to converge for key {} after {} retries",
+            key, MAX_RETRIES
+        ))
     }
 
     pub fn get_edge(&self, edge_id: &str) -> Option<EdgeRow> {
