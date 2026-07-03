@@ -1,0 +1,29 @@
+crates/wasm/src/dispatch.rs:575:602 end_to_end_full_pipeline_lora_plus_graph_plus_router
+fn end_to_end_full_pipeline_lora_plus_graph_plus_router() {
+        let mut s = LearnSession::new(MemKv::default());
+        call(&mut s, "init_instant", json!({ "targets": ["fast", "slow"] }));
+        call(&mut s, "init_router", json!({ "in_dim": 384, "targets": ["fast", "slow"], "trained": true }));
+        call(&mut s, "insert_edge", json!({
+            "id": "e1", "src": "user", "dst": "doc",
+            "relation": "entity", "valid_at": 1000, "created_at": 1000,
+        }));
+
+        let emb = mk_emb(384, 9);
+        let route = call(&mut s, "route", json!({ "embedding": emb, "estimated_tokens": 200 }));
+        let chosen = route.get("model").and_then(|v| v.as_str()).unwrap().to_string();
+
+        let fb = call(&mut s, "feedback", json!({
+            "embedding": emb, "model": chosen,
+            "payload": { "quality": 0.95 }, "now_ms": 1500,
+        }));
+        assert!(fb.get("adapter_norm").and_then(|v| v.as_f64()).unwrap() > 0.0);
+
+        call(&mut s, "record_outcome", json!({ "target": chosen, "quality": 0.95 }));
+
+        let query_now = call(&mut s, "query_at", json!({ "src": "user", "t": 2000 }));
+        assert_eq!(query_now.get("count").and_then(|v| v.as_u64()), Some(1));
+
+        let h = call(&mut s, "health", json!({}));
+        assert_eq!(h.get("instant_ready").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(h.get("router_ready").and_then(|v| v.as_bool()), Some(true));
+    }

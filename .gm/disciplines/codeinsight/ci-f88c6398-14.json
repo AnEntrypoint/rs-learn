@@ -1,0 +1,17 @@
+crates/wasm/src/graph/temporal_core.rs:174:189 mk_edge
+fn mk_edge(id: &str, src: &str, dst: &str, valid_at: i64) -> EdgeRow {
+        EdgeRow {
+            id: id.into(),
+            src: src.into(),
+            dst: dst.into(),
+            relation: Some("works_at".into()),
+            fact: Some(format!("{} works at {}", src, dst)),
+            embedding: None,
+            weight: Some(1.0),
+            group_id: Some("default".into()),
+            created_at: Some(valid_at),
+            expired_at: None,
+            valid_at: Some(valid_at),
+            invalid_at: None,
+        }
+    }

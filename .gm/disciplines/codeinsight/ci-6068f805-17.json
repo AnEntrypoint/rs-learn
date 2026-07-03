@@ -1,9 +1,0 @@
-crates/wasm/src/dispatch.rs:18:25 DispatchResponse
-pub struct DispatchResponse {
-    pub ok: bool,
-    pub verb: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}

@@ -1,0 +1,3 @@
+## Resolved mutable: mut-1783075882751
+
+Read crates/wasm/src/dispatch.rs handle_* functions: every body.get() uses .ok_or()/? propagation, no caller-input unwrap; instant.as_mut()/as_ref() gated by ok_or() first; only unwraps are wasm_export.rs:47 guard.as_mut().unwrap() (structurally guaranteed by preceding is_none check under same lock) and dispatch.rs feedback() self.instant.as_ref().unwrap() (structurally guaranteed by preceding as_mut().ok_or() success in same call) -- both internal-invariant safe, not caller-triggerable

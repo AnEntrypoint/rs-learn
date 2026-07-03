@@ -1,0 +1,122 @@
+crates/wasm/src/graph/temporal_core.rs:48:168 
+impl<B: KvBackend> TemporalGraph<B> {
+    pub fn new(kv: B) -> Self {
+        Self { kv }
+    }
+
+    pub fn insert_edge(&mut self, edge: EdgeRow) -> Result<(), String> {
+        let id = edge.id.clone();
+        if id.is_empty() { return Err("edge.id required".into()); }
+        if id.contains(',') { return Err("edge.id must not contain a comma (used as index delimiter)".into()); }
+        if edge.src.is_empty() || edge.dst.is_empty() { return Err("edge.src and edge.dst required".into()); }
+        if edge.valid_at.is_none() { return Err("edge.valid_at required (bi-temporal)".into()); }
+        if edge.created_at.is_none() { return Err("edge.created_at required (system-time)".into()); }
+        if let (Some(va), Some(iv)) = (edge.valid_at, edge.invalid_at) {
+            if iv < va { return Err("edge.invalid_at must be >= edge.valid_at".into()); }
+        }
+        let blob = serde_json::to_vec(&edge).map_err(|e| format!("serialize: {}", e))?;
+        self.kv.put(NS_EDGES, &id, &blob)?;
+        self.append_index(NS_EDGES_BY_SRC, &edge.src, &id)?;
+        self.append_index(NS_EDGES_BY_DST, &edge.dst, &id)?;
+        Ok(())
+    }
+
+    fn append_index(&mut self, ns: &str, key: &str, edge_id: &str) -> Result<(), String> {
+        const MAX_RETRIES: u32 = 8;
+        for _ in 0..MAX_RETRIES {
+            let before = self.kv.get(ns, key).unwrap_or_default();
+            let mut s = String::from_utf8(before.clone()).unwrap_or_default();
+            if s.split(',').any(|e| e == edge_id) {
+                return Ok(());
+            }
+            if !s.is_empty() { s.push(','); }
+            s.push_str(edge_id);
+            self.kv.put(ns, key, s.as_bytes())?;
+            let after = self.kv.get(ns, key).unwrap_or_default();
+            if after == s.as_bytes() {
+                return Ok(());
+            }
+            let after_s = String::from_utf8(after).unwrap_or_default();
+            if after_s.split(',').any(|e| e == edge_id) {
+                return Ok(());
+            }
+        }
+        Err(format!("append_index: failed to converge for key {} after {} retries", key, MAX_RETRIES))
+    }
+
+    pub fn get_edge(&self, edge_id: &str) -> Option<EdgeRow> {
+        let blob = self.kv.get(NS_EDGES, edge_id)?;
+        serde_json::from_slice(&blob).ok()
+    }
+
+    pub fn edges_by_src(&self, src: &str) -> Vec<EdgeRow> {
+        self.lookup_index(NS_EDGES_BY_SRC, src)
+    }
+
+    pub fn edges_by_dst(&self, dst: &str) -> Vec<EdgeRow> {
+        self.lookup_index(NS_EDGES_BY_DST, dst)
+    }
+
+    fn lookup_index(&self, ns: &str, key: &str) -> Vec<EdgeRow> {
+        let raw = match self.kv.get(ns, key) { Some(b) => b, None => return Vec::new() };
+        let s = match String::from_utf8(raw) { Ok(s) => s, Err(_) => return Vec::new() };
+        s.split(',').filter(|e| !e.is_empty())
+            .filter_map(|id| self.get_edge(id))
+            .collect()
+    }
+
+    pub fn query_at(&self, src: &str, t: i64) -> Vec<EdgeRow> {
+        self.edges_by_src(src).into_iter().filter(|e| e.active_at(t)).collect()
+    }
+
+    pub fn query_at_bounded(&self, src: &str, t: i64, limit: usize) -> Vec<EdgeRow> {
+        let mut edges: Vec<EdgeRow> = self.edges_by_src(src).into_iter().filter(|e| e.active_at(t)).collect();
+        if limit == 0 || edges.len() <= limit {
+            return edges;
+        }
+        edges.sort_by(|a, b| b.created_at.unwrap_or(0).cmp(&a.created_at.unwrap_or(0)));
+        edges.truncate(limit);
+        edges
+    }
+
+    pub fn invalidate_edge(&mut self, edge_id: &str, invalid_at: i64, expired_at: i64) -> Result<(), String> {
+        let mut edge = self.get_edge(edge_id).ok_or_else(|| format!("edge {} not found", edge_id))?;
+        if let Some(existing_iv) = edge.invalid_at {
+            if existing_iv < invalid_at {
+                return Ok(());
+            }
+        }
+        if let Some(va) = edge.valid_at {
+            if invalid_at < va {
+                return Err("invalid_at < edge.valid_at; would create negative interval".into());
+            }
+        }
+        edge.invalid_at = Some(invalid_at);
+        edge.expired_at = Some(expired_at);
+        let blob = serde_json::to_vec(&edge).map_err(|e| format!("serialize: {}", e))?;
+        self.kv.put(NS_EDGES, edge_id, &blob)?;
+        Ok(())
+    }
+
+    pub fn insert_with_contradiction(
+        &mut self,
+        new_edge: EdgeRow,
+        contradicted_edge_ids: &[String],
+        now_ms: i64,
+    ) -> Result<InvalidationOutcome, String> {
+        let new_valid_at = new_edge.valid_at.ok_or("new edge.valid_at required")?;
+        let new_id = new_edge.id.clone();
+        for old_id in contradicted_edge_ids {
+            self.invalidate_edge(old_id, new_valid_at, now_ms)?;
+        }
+        self.insert_edge(new_edge)?;
+        if let Some(first) = contradicted_edge_ids.first() {
+            Ok(InvalidationOutcome::Invalidated {
+                invalidated_edge_id: first.clone(),
+                new_edge_id: new_id,
+            })
+        } else {
+            Ok(InvalidationOutcome::Inserted { edge_id: new_id })
+        }
+    }
+}

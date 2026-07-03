@@ -9,9 +9,6 @@ pub mod dispatch;
 pub mod wasm_host;
 
 #[cfg(target_arch = "wasm32")]
-pub mod wasm_learn;
-
-#[cfg(target_arch = "wasm32")]
 pub mod wasm_export;
 
 #[cfg(target_arch = "wasm32")]
@@ -23,6 +20,3 @@ pub use learn::{InstantCore, FeedbackPayload, EwcState};
 pub use graph::{TemporalGraph, KvBackend, InvalidationOutcome, EdgeRow, NodeRow, EpisodeRow};
 pub use router::{Router, Route, RouteCtx, RouterConfig};
 pub use dispatch::{DispatchRequest, DispatchResponse, LearnSession, dispatch_json};
-
-#[cfg(target_arch = "wasm32")]
-pub use wasm_learn::{Learn, RecallHit};

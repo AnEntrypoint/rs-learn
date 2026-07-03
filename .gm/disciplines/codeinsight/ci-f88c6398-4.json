@@ -1,0 +1,34 @@
+crates/wasm/src/graph/temporal_core.rs:297:329 graphiti_style_contradiction_preserves_history
+fn graphiti_style_contradiction_preserves_history() {
+        let mut g = TemporalGraph::new(MemKv::default());
+        let acme = mk_edge("e_acme", "alice", "acme", 1000);
+        g.insert_edge(acme).unwrap();
+
+        let globex = mk_edge("e_globex", "alice", "globex", 2000);
+        let outcome = g.insert_with_contradiction(globex, &["e_acme".into()], 2050).unwrap();
+        match outcome {
+            InvalidationOutcome::Invalidated { invalidated_edge_id, new_edge_id } => {
+                assert_eq!(invalidated_edge_id, "e_acme");
+                assert_eq!(new_edge_id, "e_globex");
+            }
+            other => panic!("expected Invalidated, got {:?}", other),
+        }
+
+        let old = g.get_edge("e_acme").unwrap();
+        assert_eq!(old.invalid_at, Some(2000), "old edge t_invalid must equal new edge t_valid (Graphiti rule)");
+        assert!(old.expired_at.is_some(), "old edge gets system-time stamp");
+        assert!(!old.active_at(2500), "old edge no longer active after contradiction");
+        assert!(old.active_at(1500), "old edge still active in its historic window");
+
+        let new_edge = g.get_edge("e_globex").unwrap();
+        assert!(!new_edge.is_invalidated());
+        assert!(new_edge.active_at(2500));
+
+        let active_now: Vec<_> = g.query_at("alice", 2500);
+        assert_eq!(active_now.len(), 1);
+        assert_eq!(active_now[0].id, "e_globex");
+
+        let historical_at_1500: Vec<_> = g.query_at("alice", 1500);
+        assert_eq!(historical_at_1500.len(), 1);
+        assert_eq!(historical_at_1500[0].id, "e_acme");
+    }

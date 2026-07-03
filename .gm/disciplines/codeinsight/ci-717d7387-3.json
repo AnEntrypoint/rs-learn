@@ -1,0 +1,6 @@
+crates/wasm/src/dispatch.rs:605:609 dispatch_unknown_verb_errors
+fn dispatch_unknown_verb_errors() {
+        let mut s = LearnSession::new(MemKv::default());
+        let err = call_err(&mut s, "no_such_verb", json!({}));
+        assert!(err.contains("unknown verb"));
+    }

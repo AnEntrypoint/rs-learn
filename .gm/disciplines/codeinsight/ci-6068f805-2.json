@@ -1,7 +1,0 @@
-crates/wasm/src/dispatch.rs:587:592 dispatch_missing_required_field_errors
-fn dispatch_missing_required_field_errors() {
-        let mut s = LearnSession::new(MemKv::default());
-        call(&mut s, "init_instant", json!({ "targets": ["m"] }));
-        let err = call_err(&mut s, "feedback", json!({ "model": "m" }));
-        assert!(err.contains("embedding"));
-    }

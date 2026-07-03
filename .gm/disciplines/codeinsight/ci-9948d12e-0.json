@@ -1,0 +1,9 @@
+crates/wasm/src/learn/instant_core.rs:269:276 unknown_target_errors
+fn unknown_target_errors() {
+        let mut core = InstantCore::new(vec!["m".into()]);
+        let emb = make_emb(9);
+        let err = core.feedback(&emb, "unknown", FeedbackPayload { quality: 1.0, signal: None }, 1);
+        assert!(err.is_err());
+        assert_eq!(core.adapter_norm(), 0.0);
+        assert_eq!(core.feedback_count, 0);
+    }

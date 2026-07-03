@@ -1,0 +1,15 @@
+crates/wasm/src/dispatch.rs:384:397 dispatch_json
+pub fn dispatch_json<B: KvBackend>(session: &mut LearnSession<B>, raw: &[u8]) -> Vec<u8> {
+    let req: DispatchRequest = match serde_json::from_slice(raw) {
+        Ok(r) => r,
+        Err(e) => {
+            let resp = DispatchResponse {
+                ok: false, verb: "?".into(), data: None,
+                error: Some(format!("parse: {}", e)),
+            };
+            return serde_json::to_vec(&resp).unwrap_or_default();
+        }
+    };
+    let resp = session.dispatch(req);
+    serde_json::to_vec(&resp).unwrap_or_default()
+}

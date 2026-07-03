@@ -1,0 +1,6 @@
+crates/wasm/src/graph/temporal_core.rs:290:294 invalidate_rejects_negative_interval
+fn invalidate_rejects_negative_interval() {
+        let mut g = TemporalGraph::new(MemKv::default());
+        g.insert_edge(mk_edge("e1", "alice", "acme", 2000)).unwrap();
+        assert!(g.invalidate_edge("e1", 1000, 1500).is_err());
+    }

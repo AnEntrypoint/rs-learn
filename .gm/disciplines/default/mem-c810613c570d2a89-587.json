@@ -1,0 +1,3 @@
+## Resolved mutable: mut-1783075886323
+
+Read crates/wasm/src/wasm_learn.rs (both gated #![cfg(target_arch="wasm32")]) and wasm_export.rs: rs_learn_dispatch (the sole wasm entry point) calls dispatch_json(session,...) exclusively, never Learn::recall/memorize; git_log on wasm_learn.rs shows only generic chore/version-bump commits touching many files, no feature commit with forward-looking intent; decision: genuinely abandoned, zero real callers confirmed twice (this session and prior audit) -- removing Learn::recall/memorize/RecallHit/fnv1a_short dead exports from wasm_learn.rs now

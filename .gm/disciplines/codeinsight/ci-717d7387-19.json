@@ -1,0 +1,8 @@
+crates/wasm/src/dispatch.rs:11:17 session_key
+fn session_key(body: &Value) -> String {
+    body.get("session_key")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("default")
+        .to_string()
+}

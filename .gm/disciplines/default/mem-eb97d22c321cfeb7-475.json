@@ -1,0 +1,3 @@
+## Resolved mutable: mut-1783075883802
+
+Read crates/wasm/src/wasm_host.rs: every unsafe host_* call passes ptr/len from valid Rust &str/&[u8] (outbound sound); take_bytes() checks ptr==0||len==0 before from_raw_parts (inbound sound); wasm_export.rs rs_learn_dispatch checks ptr.is_null()||len==0 before from_raw_parts; rs_learn_free checks null/zero before Vec::from_raw_parts. All unsafe blocks are the standard wasm-import ptr/len FFI pattern with defensive guards -- sound

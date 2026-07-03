@@ -1,7 +1,0 @@
-crates/wasm/src/graph/time.rs:1:6 format_iso
-pub fn format_iso(ms: i64) -> String {
-    let s = ms / 1000;
-    let millis = ms % 1000;
-    let (y, mo, d, h, mi, se) = ms_to_parts(s);
-    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z", y, mo, d, h, mi, se, millis)
-}

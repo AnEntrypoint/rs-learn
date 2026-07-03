@@ -1,0 +1,7 @@
+crates/wasm/src/dispatch.rs:408:413 call
+fn call(session: &mut LearnSession<MemKv>, verb: &str, body: Value) -> Value {
+        let req = DispatchRequest { verb: verb.into(), body };
+        let resp = session.dispatch(req);
+        assert!(resp.ok, "verb {} failed: {:?}", verb, resp.error);
+        resp.data.unwrap_or(json!(null))
+    }

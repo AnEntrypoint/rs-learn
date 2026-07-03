@@ -1,0 +1,10 @@
+crates/wasm/src/graph/temporal_core.rs:332:340 insert_without_contradiction_lists_no_invalidation
+fn insert_without_contradiction_lists_no_invalidation() {
+        let mut g = TemporalGraph::new(MemKv::default());
+        let outcome = g.insert_with_contradiction(
+            mk_edge("e1", "alice", "acme", 1000),
+            &[],
+            1000,
+        ).unwrap();
+        assert_eq!(outcome, InvalidationOutcome::Inserted { edge_id: "e1".into() });
+    }

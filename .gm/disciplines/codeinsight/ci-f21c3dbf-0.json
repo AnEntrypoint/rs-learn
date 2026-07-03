@@ -1,7 +1,0 @@
-crates/wasm/src/learn/instant_core.rs:269:274 unknown_target_is_noop
-fn unknown_target_is_noop() {
-        let mut core = InstantCore::new(vec!["m".into()]);
-        let emb = make_emb(9);
-        core.feedback(&emb, "unknown", FeedbackPayload { quality: 1.0, signal: None }, 1).unwrap();
-        assert_eq!(core.adapter_norm(), 0.0);
-    }

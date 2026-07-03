@@ -1,7 +1,0 @@
-crates/wasm/src/dispatch.rs:390:395 call_err
-fn call_err(session: &mut LearnSession<MemKv>, verb: &str, body: Value) -> String {
-        let req = DispatchRequest { verb: verb.into(), body };
-        let resp = session.dispatch(req);
-        assert!(!resp.ok, "expected failure for verb {}, got data: {:?}", verb, resp.data);
-        resp.error.unwrap_or_default()
-    }

@@ -1,0 +1,159 @@
+crates/wasm/src/dispatch.rs:44:382 
+impl<B: KvBackend> LearnSession<B> {
+    pub fn new(kv: B) -> Self {
+        Self {
+            graph: TemporalGraph::new(kv),
+            instant: None,
+            deep: DeepCore::new(),
+            router: None,
+            attention: None,
+        }
+    }
+
+    pub fn dispatch(&mut self, req: DispatchRequest) -> DispatchResponse {
+        let verb = req.verb.clone();
+        let result: Result<Value, String> = match verb.as_str() {
+            "insert_edge"     => self.handle_insert_edge(req.body),
+            "query_at"        => self.handle_query_at(req.body),
+            "invalidate_edge" => self.handle_invalidate(req.body),
+            "contradict"      => self.handle_contradict(req.body),
+            "get_edge"        => self.handle_get_edge(req.body),
+            "init_instant"    => self.handle_init_instant(req.body),
+            "feedback"        => self.handle_feedback(req.body),
+            "apply_adapter"   => self.handle_apply_adapter(req.body),
+            "reset_adapter"   => self.handle_reset_adapter(req.body),
+            "record_loss"     => self.handle_record_loss(req.body),
+            "consolidate"     => self.handle_consolidate(req.body),
+            "ewc_penalty"     => self.handle_ewc_penalty(req.body),
+            "init_router"     => self.handle_init_router(req.body),
+            "route"           => self.handle_route(req.body),
+            "record_outcome"  => self.handle_record_outcome(req.body),
+            "init_attention"  => self.handle_init_attention(req.body),
+            "attend"          => self.handle_attend(req.body),
+            "nudge_relation"  => self.handle_nudge_relation(req.body),
+            "health"          => Ok(self.health()),
+            _ => Err(format!("unknown verb: {}", verb)),
+        };
+        match result {
+            Ok(data) => DispatchResponse { ok: true, verb, data: Some(data), error: None },
+            Err(e) => DispatchResponse { ok: false, verb, data: None, error: Some(e) },
+        }
+    }
+
+    fn health(&self) -> Value {
+        json!({
+            "instant_ready": self.instant.is_some(),
+            "router_ready": self.router.is_some(),
+            "attention_ready": self.attention.is_some(),
+            "deep_fisher_keys": self.deep.fisher.keys().count(),
+            "loss_window_size": self.deep.loss_ring.len(),
+            "boundaries_detected": self.deep.boundaries_detected,
+        })
+    }
+
+    fn handle_insert_edge(&mut self, body: Value) -> Result<Value, String> {
+        let edge: EdgeRow = serde_json::from_value(body).map_err(|e| format!("parse edge: {}", e))?;
+        self.graph.insert_edge(edge.clone())?;
+        Ok(json!({ "edge_id": edge.id }))
+    }
+
+    fn handle_query_at(&self, body: Value) -> Result<Value, String> {
+        let src = body.get("src").and_then(|v| v.as_str()).ok_or("src required")?;
+        let t = body.get("t").and_then(|v| v.as_i64()).ok_or("t required")?;
+        let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        let edges = if limit > 0 { self.graph.query_at_bounded(src, t, limit) } else { self.graph.query_at(src, t) };
+        Ok(json!({ "edges": edges, "count": edges.len() }))
+    }
+
+    fn handle_invalidate(&mut self, body: Value) -> Result<Value, String> {
+        let id = body.get("edge_id").and_then(|v| v.as_str()).ok_or("edge_id required")?;
+        let invalid_at = body.get("invalid_at").and_then(|v| v.as_i64()).ok_or("invalid_at required")?;
+        let expired_at = body.get("expired_at").and_then(|v| v.as_i64()).ok_or("expired_at required")?;
+        self.graph.invalidate_edge(id, invalid_at, expired_at)?;
+        Ok(json!({ "edge_id": id, "invalid_at": invalid_at }))
+    }
+
+    fn handle_contradict(&mut self, body: Value) -> Result<Value, String> {
+        let edge: EdgeRow = serde_json::from_value(body.get("new_edge").cloned().ok_or("new_edge required")?)
+            .map_err(|e| format!("parse new_edge: {}", e))?;
+        let old_ids: Vec<String> = body.get("contradicts")
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+            .unwrap_or_default();
+        let now = body.get("now_ms").and_then(|v| v.as_i64()).unwrap_or(0);
+        let outcome = self.graph.insert_with_contradiction(edge, &old_ids, now)?;
+        Ok(match outcome {
+            InvalidationOutcome::Inserted { edge_id } => json!({ "kind": "inserted", "edge_id": edge_id }),
+            InvalidationOutcome::Invalidated { invalidated_edge_id, new_edge_id } => json!({
+                "kind": "invalidated",
+                "invalidated_edge_id": invalidated_edge_id,
+                "new_edge_id": new_edge_id,
+            }),
+        })
+    }
+
+    fn handle_get_edge(&self, body: Value) -> Result<Value, String> {
+        let id = body.get("edge_id").and_then(|v| v.as_str()).ok_or("edge_id required")?;
+        match self.graph.get_edge(id) {
+            Some(e) => Ok(json!({ "edge": e })),
+            None => Ok(json!({ "edge": null })),
+        }
+    }
+
+    fn handle_init_instant(&mut self, body: Value) -> Result<Value, String> {
+        let targets: Vec<String> = body.get("targets").and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+            .ok_or("targets required (string array)")?;
+        if targets.is_empty() { return Err("targets must not be empty".into()); }
+        #[cfg(target_arch = "wasm32")]
+        let session_key = session_key(&body);
+        let core = InstantCore::new(targets.clone());
+        #[cfg(target_arch = "wasm32")]
+        crate::learn::persist::save_adapter(&core, &session_key).map_err(|e| format!("save_adapter: {:?}", e))?;
+        self.instant = Some(core);
+        Ok(json!({ "n_targets": targets.len() }))
+    }
+
+    fn handle_feedback(&mut self, body: Value) -> Result<Value, String> {
+        #[cfg(target_arch = "wasm32")]
+        let session_key = session_key(&body);
+        #[cfg(target_arch = "wasm32")]
+        if self.instant.is_none() {
+            if let Some(c) = crate::learn::persist::load_adapter(&session_key).map_err(|e| format!("load_adapter: {:?}", e))? {
+                self.instant = Some(c);
+            }
+        }
+        let core = self.instant.as_mut().ok_or("instant not initialized; call init_instant first")?;
+        let emb: Vec<f32> = serde_json::from_value(body.get("embedding").cloned().ok_or("embedding required")?)
+            .map_err(|e| format!("embedding parse: {}", e))?;
+        if emb.iter().any(|x| !x.is_finite()) { return Err("embedding has non-finite values".into()); }
+        let model = body.get("model").and_then(|v| v.as_str()).ok_or("model required")?.to_string();
+        let payload: FeedbackPayload = serde_json::from_value(body.get("payload").cloned().ok_or("payload required")?)
+            .map_err(|e| format!("payload parse: {}", e))?;
+        let now = body.get("now_ms").and_then(|v| v.as_i64()).unwrap_or(0);
+        core.feedback(&emb, &model, payload, now)?;
+        let resp = json!({
+            "adapter_norm": core.adapter_norm(),
+            "feedback_count": core.feedback_count,
+            "lr": core.lr,
+        });
+        #[cfg(target_arch = "wasm32")]
+        {
+            let core = self.instant.as_ref().unwrap();
+            crate::learn::persist::save_adapter(core, &session_key).map_err(|e| format!("save_adapter: {:?}", e))?;
+        }
+        Ok(resp)
+    }
+
+    fn handle_apply_adapter(&mut self, body: Value) -> Result<Value, String> {
+        #[cfg(target_arch = "wasm32")]
+        if self.instant.is_none() {
+            let session_key = session_key(&body);
+            if let Some(c) = crate::learn::persist::load_adapter(&session_key).map_err(|e| format!("load_adapter: {:?}", e))? {
+                self.instant = Some(c);
+            }
+        }
+        let core = self.instant.as_ref().ok_or("instant not initialized")?;
+        let emb: Vec<f32> = serde_json::from_value(body.get("embedding").cloned().ok_or("embedding required")?)
+            .map_err(|e| format!("embedding parse: {}", e))?;
+        if emb.iter().any(|x| !x.is_finite()) { return Err("embedding has non-finite values".int

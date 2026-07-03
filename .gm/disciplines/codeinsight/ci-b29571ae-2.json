@@ -1,0 +1,24 @@
+crates/wasm/src/wasm_learn.rs:18:40 
+impl Learn {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn recall(&self, query: &str, limit: usize) -> Result<Vec<RecallHit>> {
+        let bytes = wasm_host::vec_search(query, limit as u32)?;
+        if bytes.is_empty() {
+            return Ok(Vec::new());
+        }
+        let parsed: Vec<RecallHit> = serde_json::from_slice(&bytes)?;
+        Ok(parsed)
+    }
+
+    pub fn memorize(&self, text: &str, namespace: &str) -> Result<()> {
+        let now = wasm_host::now_ms();
+        let key = format!("{}-{}", now, fnv1a_short(text));
+        wasm_host::kv_put(namespace, &key, text.as_bytes())?;
+        wasm_host::kv_put("pending_index", &key, namespace.as_bytes())?;
+        wasm_host::log(&format!("memorize ns={} key={}", namespace, key));
+        Ok(())
+    }
+}

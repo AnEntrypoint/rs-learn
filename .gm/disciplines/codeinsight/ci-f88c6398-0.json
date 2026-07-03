@@ -1,0 +1,9 @@
+crates/wasm/src/graph/temporal_core.rs:360:367 append_index_survives_many_sequential_inserts_same_key
+fn append_index_survives_many_sequential_inserts_same_key() {
+        let mut g = TemporalGraph::new(MemKv::default());
+        for i in 0..50 {
+            g.insert_edge(mk_edge(&format!("e{}", i), "hub", &format!("d{}", i), 1000 + i)).unwrap();
+        }
+        let edges = g.edges_by_src("hub");
+        assert_eq!(edges.len(), 50, "all 50 edges must be reachable via the src index, none dropped");
+    }

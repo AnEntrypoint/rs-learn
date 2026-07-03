@@ -1,0 +1,7 @@
+crates/wasm/src/graph/temporal_core.rs:192:197 insert_and_get
+fn insert_and_get() {
+        let mut g = TemporalGraph::new(MemKv::default());
+        let e = mk_edge("e1", "alice", "acme", 1000);
+        g.insert_edge(e.clone()).unwrap();
+        assert_eq!(g.get_edge("e1"), Some(e));
+    }
