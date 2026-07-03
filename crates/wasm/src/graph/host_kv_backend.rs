@@ -15,6 +15,9 @@ pub struct HostKv;
 
 impl KvBackend for HostKv {
     fn get(&self, namespace: &str, key: &str) -> Option<Vec<u8>> {
+        // host_kv_get packs (ptr,len) into a u64 with no distinct not-found
+        // signal; the host ABI cannot distinguish missing key from an
+        // empty-value hit, so both collapse to None here.
         let bytes = wasm_host::kv_get(namespace, key).ok()?;
         if bytes.is_empty() { None } else { Some(bytes) }
     }

@@ -1,5 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+// No dispatch verb constructs, inserts, or queries EpisodeRow: there is no
+// episode storage in TemporalGraph (no NS_EPISODES namespace, no
+// insert_episode/get_episode), so this type is currently unreachable from
+// any wasm-boundary call. Wiring it needs a storage layer added to
+// TemporalGraph first, not just a dispatch handler.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct EpisodeRow {
     pub id: String,
@@ -11,6 +16,13 @@ pub struct EpisodeRow {
     pub invalid_at: Option<i64>,
 }
 
+// No dispatch verb constructs, inserts, or queries NodeRow: TemporalGraph
+// defines NS_NODES but never reads or writes it (only NS_EDGES/_BY_SRC/_BY_DST
+// are used by insert_edge/get_edge/lookup_index), so the node layer of the
+// graph is currently unreachable from any wasm-boundary call. Wiring a
+// node_insert/node_query verb needs real node storage methods added to
+// TemporalGraph first (mirroring insert_edge/get_edge), not just a dispatch
+// handler over EdgeRow's existing pattern.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct NodeRow {
     pub id: String,

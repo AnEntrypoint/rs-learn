@@ -236,6 +236,13 @@ impl<B: KvBackend> LearnSession<B> {
         self.deep.consolidate(&param_id, &params, &grads)?;
         #[cfg(target_arch = "wasm32")]
         crate::learn::persist::save_fisher(&self.deep, &param_id).map_err(|e| format!("save_fisher: {:?}", e))?;
+        if let Some(core) = self.instant.as_mut() {
+            if params.len() == core.adapter_a.len() + core.adapter_b.len() {
+                if let Some(fisher) = self.deep.fisher.get(&param_id).cloned() {
+                    core.set_ewc_state(fisher, params.clone(), self.deep.lambda);
+                }
+            }
+        }
         Ok(json!({ "param_id": param_id, "fisher_len": self.deep.fisher.get(&param_id).map(|v| v.len()).unwrap_or(0) }))
     }
 
