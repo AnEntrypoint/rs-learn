@@ -31,6 +31,7 @@ pub struct InstantCore {
     pub replay_buf: std::collections::VecDeque<(Vec<f32>, usize, f32)>,
     pub feedback_count: u64,
     pub resets_performed: u64,
+    pub persist_version: u64,
 }
 
 fn dot(a: &[f32], b: &[f32]) -> f32 {
@@ -86,6 +87,7 @@ impl InstantCore {
             replay_buf: std::collections::VecDeque::with_capacity(REPLAY_CAP),
             feedback_count: 0,
             resets_performed: 0,
+            persist_version: 0,
         }
     }
 

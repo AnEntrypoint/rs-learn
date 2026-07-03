@@ -18,6 +18,8 @@ struct AdapterBlob {
     lr: f32,
     feedback_count: u64,
     resets: u64,
+    #[serde(default)]
+    version: u64,
 }
 
 pub fn save_adapter(core: &InstantCore, key: &str) -> Result<()> {
@@ -28,6 +30,7 @@ pub fn save_adapter(core: &InstantCore, key: &str) -> Result<()> {
         lr: core.lr,
         feedback_count: core.feedback_count,
         resets: core.resets_performed,
+        version: core.persist_version,
     };
     let json = serde_json::to_vec(&blob)?;
     wasm_host::kv_put(NS_ADAPTER, key, &json)
@@ -43,7 +46,15 @@ pub fn load_adapter(key: &str) -> Result<Option<InstantCore>> {
     core.lr = blob.lr;
     core.feedback_count = blob.feedback_count;
     core.resets_performed = blob.resets;
+    core.persist_version = blob.version;
     Ok(Some(core))
+}
+
+pub fn peek_adapter_version(key: &str) -> Result<Option<u64>> {
+    let bytes = wasm_host::kv_get(NS_ADAPTER, key)?;
+    if bytes.is_empty() { return Ok(None); }
+    let blob: AdapterBlob = serde_json::from_slice(&bytes)?;
+    Ok(Some(blob.version))
 }
 
 pub fn save_fisher(deep: &DeepCore, param_id: &str) -> Result<()> {

@@ -156,6 +156,15 @@ impl<B: KvBackend> LearnSession<B> {
         Ok(json!({ "n_targets": targets.len() }))
     }
 
+    // handle_feedback is the highest-traffic session-keyed handler, so it carries the
+    // read-recheck-write retry below (optimistic concurrency via persist_version, mirroring
+    // the rs-plugkit cas_retry_write shape). The host KV backend (host_kv_backend.rs /
+    // wasm_host::kv_get+kv_put) exposes no true compare-and-swap primitive -- only plain
+    // get/put -- so this narrows but cannot fully close the race: apply_adapter, reset_adapter,
+    // init_router, route, record_outcome, init_attention, nudge_relation and attend below do
+    // the same unsynchronized load-mutate-save against session_key-keyed kv state and share
+    // the same window; they are not yet covered and should get the same treatment (or a shared
+    // helper) in a follow-up pass.
     fn handle_feedback(&mut self, body: Value) -> Result<Value, String> {
         #[cfg(target_arch = "wasm32")]
         let session_key = session_key(&body);
@@ -165,7 +174,6 @@ impl<B: KvBackend> LearnSession<B> {
                 self.instant = Some(c);
             }
         }
-        let core = self.instant.as_mut().ok_or("instant not initialized; call init_instant first")?;
         let emb: Vec<f32> = serde_json::from_value(body.get("embedding").cloned().ok_or("embedding required")?)
             .map_err(|e| format!("embedding parse: {}", e))?;
         if emb.iter().any(|x| !x.is_finite()) { return Err("embedding has non-finite values".into()); }
@@ -173,18 +181,41 @@ impl<B: KvBackend> LearnSession<B> {
         let payload: FeedbackPayload = serde_json::from_value(body.get("payload").cloned().ok_or("payload required")?)
             .map_err(|e| format!("payload parse: {}", e))?;
         let now = body.get("now_ms").and_then(|v| v.as_i64()).unwrap_or(0);
-        core.feedback(&emb, &model, payload, now)?;
-        let resp = json!({
-            "adapter_norm": core.adapter_norm(),
-            "feedback_count": core.feedback_count,
-            "lr": core.lr,
-        });
+
         #[cfg(target_arch = "wasm32")]
-        {
-            let core = self.instant.as_ref().unwrap();
-            crate::learn::persist::save_adapter(core, &session_key).map_err(|e| format!("save_adapter: {:?}", e))?;
+        const MAX_RETRIES: u32 = 5;
+        #[cfg(target_arch = "wasm32")]
+        let mut attempt = 0u32;
+        loop {
+            let core = self.instant.as_mut().ok_or("instant not initialized; call init_instant first")?;
+            core.feedback(&emb, &model, payload.clone(), now)?;
+            core.persist_version = core.persist_version.wrapping_add(1);
+            let resp = json!({
+                "adapter_norm": core.adapter_norm(),
+                "feedback_count": core.feedback_count,
+                "lr": core.lr,
+            });
+            #[cfg(target_arch = "wasm32")]
+            {
+                let expected_version = core.persist_version - 1;
+                let observed = crate::learn::persist::peek_adapter_version(&session_key)
+                    .map_err(|e| format!("peek_adapter_version: {:?}", e))?;
+                if let Some(observed_version) = observed {
+                    if observed_version != expected_version && attempt < MAX_RETRIES {
+                        if let Some(fresh) = crate::learn::persist::load_adapter(&session_key)
+                            .map_err(|e| format!("load_adapter: {:?}", e))?
+                        {
+                            self.instant = Some(fresh);
+                            attempt += 1;
+                            continue;
+                        }
+                    }
+                }
+                let core = self.instant.as_ref().unwrap();
+                crate::learn::persist::save_adapter(core, &session_key).map_err(|e| format!("save_adapter: {:?}", e))?;
+            }
+            return Ok(resp);
         }
-        Ok(resp)
     }
 
     fn handle_apply_adapter(&mut self, body: Value) -> Result<Value, String> {

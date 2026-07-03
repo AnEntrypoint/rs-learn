@@ -2,6 +2,7 @@
 
 use crate::dispatch::{dispatch_json, LearnSession};
 use crate::graph::host_kv_backend::HostKv;
+use crate::wasm_host;
 use std::sync::Mutex;
 
 static SESSION: Mutex<Option<LearnSession<HostKv>>> = Mutex::new(None);
@@ -47,7 +48,12 @@ pub extern "C" fn rs_learn_dispatch(ptr: *const u8, len: usize) -> u64 {
     let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
     let mut guard = match SESSION.lock() {
         Ok(g) => g,
-        Err(poisoned) => poisoned.into_inner(),
+        Err(poisoned) => {
+            let mut g = poisoned.into_inner();
+            *g = None;
+            wasm_host::log("rs_learn_dispatch: SESSION mutex poisoned, reset to clean state");
+            g
+        }
     };
     if guard.is_none() {
         *guard = Some(LearnSession::new(HostKv));
