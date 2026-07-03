@@ -1,0 +1,3 @@
+## Resolved mutable: mut-cascade-branch-mergeable
+
+git merge origin/claude/fix-cascade-build-MmgWq: Merge made by the ort strategy, no conflicts, commit 65f4d51; git merge-base --is-ancestor 8619dd3 HEAD confirms reachability
