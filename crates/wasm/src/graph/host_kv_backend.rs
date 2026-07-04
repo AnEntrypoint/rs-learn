@@ -7,8 +7,6 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 struct KvEntry {
     key: String,
-    #[serde(default)]
-    value: Option<String>,
 }
 
 pub struct HostKv;

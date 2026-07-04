@@ -171,7 +171,7 @@ impl Attention {
             for v in feat.iter_mut() { *v = 0.0; }
             let rel = edge.relation.as_deref().unwrap_or("").split("-L").next().unwrap_or("");
             if let Some(idx) = RELATION_VOCAB.iter().position(|r| *r == rel) { feat[idx] = 1.0; }
-            feat[RELATION_VOCAB.len()] = (-(now - (*ts as f32)) / WEEK_MS).exp();
+            feat[RELATION_VOCAB.len()] = (((*ts as f32) - now).min(0.0) / WEEK_MS).exp();
             feat[RELATION_VOCAB.len() + 1] = edge.weight.unwrap_or(1.0);
             matvec(&self.we, self.head_dim, self.edge_feat_dim, &feat, &mut e_proj);
             for h in 0..self.heads {

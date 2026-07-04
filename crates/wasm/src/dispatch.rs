@@ -197,7 +197,7 @@ impl<B: KvBackend> LearnSession<B> {
             });
             #[cfg(target_arch = "wasm32")]
             {
-                let expected_version = core.persist_version - 1;
+                let expected_version = core.persist_version.wrapping_sub(1);
                 let observed = crate::learn::persist::peek_adapter_version(&session_key)
                     .map_err(|e| format!("peek_adapter_version: {:?}", e))?;
                 if let Some(observed_version) = observed {
@@ -229,6 +229,9 @@ impl<B: KvBackend> LearnSession<B> {
         let core = self.instant.as_ref().ok_or("instant not initialized")?;
         let emb: Vec<f32> = serde_json::from_value(body.get("embedding").cloned().ok_or("embedding required")?)
             .map_err(|e| format!("embedding parse: {}", e))?;
+        if emb.len() != crate::learn::instant_core::IN {
+            return Err(format!("embedding must be len {}, got {}", crate::learn::instant_core::IN, emb.len()));
+        }
         if emb.iter().any(|x| !x.is_finite()) { return Err("embedding has non-finite values".into()); }
         let mut logits = vec![0f32; core.n_targets];
         core.apply_adapter(&emb, &mut logits);
@@ -264,6 +267,9 @@ impl<B: KvBackend> LearnSession<B> {
             .map_err(|e| format!("params parse: {}", e))?;
         let grads: Vec<f32> = serde_json::from_value(body.get("grads").cloned().ok_or("grads required")?)
             .map_err(|e| format!("grads parse: {}", e))?;
+        if params.iter().chain(grads.iter()).any(|x| !x.is_finite()) {
+            return Err("params/grads have non-finite values".into());
+        }
         self.deep.consolidate(&param_id, &params, &grads)?;
         #[cfg(target_arch = "wasm32")]
         crate::learn::persist::save_fisher(&self.deep, &param_id).map_err(|e| format!("save_fisher: {:?}", e))?;
@@ -365,9 +371,10 @@ impl<B: KvBackend> LearnSession<B> {
     fn handle_init_attention(&mut self, body: Value) -> Result<Value, String> {
         let dim = body.get("dim").and_then(|v| v.as_u64()).ok_or("dim required")? as usize;
         let heads = body.get("heads").and_then(|v| v.as_u64()).unwrap_or(8) as usize;
+        if dim == 0 || heads == 0 { return Err("dim/heads/head_dim must be > 0".into()); }
         let head_dim = body.get("head_dim").and_then(|v| v.as_u64()).unwrap_or((dim / heads) as u64) as usize;
         let seed = body.get("seed").and_then(|v| v.as_u64()).unwrap_or(42) as u32;
-        if heads == 0 || head_dim == 0 || dim == 0 { return Err("dim/heads/head_dim must be > 0".into()); }
+        if head_dim == 0 { return Err("dim/heads/head_dim must be > 0".into()); }
         #[cfg(target_arch = "wasm32")]
         let session_key = session_key(&body);
         let a = Attention::new(dim, heads, head_dim, seed);

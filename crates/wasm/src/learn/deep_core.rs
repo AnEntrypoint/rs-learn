@@ -48,20 +48,19 @@ impl DeepCore {
 
     pub fn record_loss(&mut self, loss: f32) -> bool {
         if !loss.is_finite() { return false; }
-        let prior: Vec<f32> = self.loss_ring.iter().copied().collect();
+        let fired = if self.loss_ring.len() >= 3 {
+            let n = self.loss_ring.len() as f32;
+            let mean = self.loss_ring.iter().sum::<f32>() / n;
+            let var = self.loss_ring.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / n;
+            let stddev = var.sqrt().max(MIN_STDDEV);
+            (loss - mean).abs() / stddev > BOUNDARY_Z
+        } else {
+            false
+        };
         if self.loss_ring.len() >= self.ring_cap { self.loss_ring.pop_front(); }
         self.loss_ring.push_back(loss);
-        if prior.len() < 3 { return false; }
-        let n = prior.len() as f32;
-        let mean = prior.iter().sum::<f32>() / n;
-        let var = prior.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / n;
-        let stddev = var.sqrt().max(MIN_STDDEV);
-        let z = (loss - mean).abs() / stddev;
-        if z > BOUNDARY_Z {
-            self.boundaries_detected += 1;
-            return true;
-        }
-        false
+        if fired { self.boundaries_detected += 1; }
+        fired
     }
 
     pub fn ewc_state(&self, param_id: &str) -> Option<(Vec<f32>, Vec<f32>, f32)> {

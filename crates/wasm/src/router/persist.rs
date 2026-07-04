@@ -1,7 +1,7 @@
 #![cfg(target_arch = "wasm32")]
 
 use crate::errors::Result;
-use crate::router::core::{Router, Weights, Heads, init_weights, init_heads, RouterConfig};
+use crate::router::core::{Router, Weights, Heads, RouterConfig};
 use crate::wasm_host;
 use serde::{Deserialize, Serialize};
 
