@@ -1,9 +1,0 @@
-crates/wasm/src/pipeline.rs:18:25 PendingStep
-pub struct PendingStep {
-    pub kind: String,
-    pub id: String,
-    pub payload: Value,
-    pub prompt_template: String,
-    pub max_result_bytes: usize,
-    pub result_schema: Value,
-}

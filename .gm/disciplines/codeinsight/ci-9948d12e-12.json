@@ -1,5 +1,0 @@
-crates/wasm/src/learn/instant_core.rs:43:46 axpy
-fn axpy(scale: f32, src: &[f32], dst: &mut [f32]) {
-    debug_assert_eq!(src.len(), dst.len());
-    for i in 0..src.len() { dst[i] += scale * src[i]; }
-}

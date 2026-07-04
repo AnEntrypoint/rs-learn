@@ -1,4 +1,0 @@
-crates/wasm/src/learn/instant_core.rs:204:206 make_emb
-fn make_emb(seed: u8) -> Vec<f32> {
-        (0..IN).map(|i| ((i as u8).wrapping_add(seed) as f32) / 255.0 - 0.5).collect()
-    }

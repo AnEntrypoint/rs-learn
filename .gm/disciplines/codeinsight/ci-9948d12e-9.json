@@ -1,4 +1,0 @@
-crates/wasm/src/learn/instant_core.rs:187:189 read_lr_min
-fn read_lr_min() -> f32 {
-    LR0.min(1e-3)
-}

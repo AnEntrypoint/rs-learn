@@ -1,5 +1,0 @@
-crates/wasm/src/graph/temporal_core.rs:39:42 InvalidationOutcome
-pub enum InvalidationOutcome {
-    Inserted { edge_id: String },
-    Invalidated { invalidated_edge_id: String, new_edge_id: String },
-}

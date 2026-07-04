@@ -1,8 +1,0 @@
-crates/wasm/src/graph/attention.rs:15:21 SubgraphEdge
-pub struct SubgraphEdge {
-    pub src: String,
-    pub dst: String,
-    pub relation: Option<String>,
-    pub weight: Option<f32>,
-    pub created_at: Option<i64>,
-}

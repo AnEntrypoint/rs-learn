@@ -1,7 +1,0 @@
-crates/wasm/src/wasm_export.rs:10:15 rs_learn_alloc
-pub extern "C" fn rs_learn_alloc(len: usize) -> *mut u8 {
-    let mut v = Vec::<u8>::with_capacity(len);
-    let p = v.as_mut_ptr();
-    core::mem::forget(v);
-    p
-}

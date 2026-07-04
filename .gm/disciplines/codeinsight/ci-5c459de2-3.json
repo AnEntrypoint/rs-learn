@@ -1,7 +1,0 @@
-crates/wasm/src/graph/attention.rs:309:314 nudge_relation_unknown_is_noop
-fn nudge_relation_unknown_is_noop() {
-        let mut a = Attention::new(64, 8, 8, 1);
-        let before: Vec<f32> = a.we.clone();
-        a.nudge_relation("does-not-exist", 1.0);
-        assert_eq!(a.we, before);
-    }

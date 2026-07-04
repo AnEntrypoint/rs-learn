@@ -1,4 +1,0 @@
-crates/wasm/src/learn/deep_core.rs:95:97 
-impl Default for DeepCore {
-    fn default() -> Self { Self::new() }
-}

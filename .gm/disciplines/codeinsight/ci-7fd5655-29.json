@@ -1,8 +1,0 @@
-crates/wasm/src/router/core.rs:39:45 Weights
-pub struct Weights {
-    pub v: Vec<f32>,
-    pub u: Vec<f32>,
-    pub uh: Vec<f32>,
-    pub bh: Vec<f32>,
-    pub bz: Vec<f32>,
-}

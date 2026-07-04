@@ -1,4 +1,0 @@
-crates/wasm/src/router/core.rs:297:299 empty_targets_returns_err
-fn empty_targets_returns_err() {
-        assert!(Router::new(RouterConfig::new(384, vec![])).is_err());
-    }

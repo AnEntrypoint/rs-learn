@@ -1,6 +1,0 @@
-crates/wasm/src/dispatch.rs:20:24 DispatchRequest
-pub struct DispatchRequest {
-    pub verb: String,
-    #[serde(default)]
-    pub body: Value,
-}

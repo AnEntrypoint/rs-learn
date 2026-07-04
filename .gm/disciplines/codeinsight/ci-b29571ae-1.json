@@ -1,6 +1,0 @@
-crates/wasm/src/wasm_learn.rs:42:46 
-impl Default for Learn {
-    fn default() -> Self {
-        Self::new()
-    }
-}

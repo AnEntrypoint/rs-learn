@@ -1,6 +1,0 @@
-crates/wasm/src/wasm_host.rs:23:27 unpack
-fn unpack(packed: u64) -> (u32, u32) {
-    let ptr = (packed & 0xFFFF_FFFF) as u32;
-    let len = (packed >> 32) as u32;
-    (ptr, len)
-}

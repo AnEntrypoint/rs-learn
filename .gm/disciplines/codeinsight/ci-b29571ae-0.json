@@ -1,9 +1,0 @@
-crates/wasm/src/wasm_learn.rs:48:55 fnv1a_short
-fn fnv1a_short(text: &str) -> String {
-    let mut h: u64 = 1469598103934665603;
-    for b in text.as_bytes() {
-        h ^= *b as u64;
-        h = h.wrapping_mul(1099511628211);
-    }
-    format!("{:016x}", h)
-}

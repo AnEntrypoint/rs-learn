@@ -1,7 +1,0 @@
-crates/wasm/src/learn/deep_core.rs:146:151 ewc_penalty_zero_at_snapshot
-fn ewc_penalty_zero_at_snapshot() {
-        let mut d = DeepCore::with_lambda(1000.0);
-        let params = vec![0.3f32; 5];
-        d.consolidate("p", &params, &[1.0; 5]).unwrap();
-        assert_eq!(d.ewc_penalty("p", &params), 0.0);
-    }

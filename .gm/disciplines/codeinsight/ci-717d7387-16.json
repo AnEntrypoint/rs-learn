@@ -1,8 +1,0 @@
-crates/wasm/src/dispatch.rs:36:42 LearnSession
-pub struct LearnSession<B: KvBackend> {
-    pub graph: TemporalGraph<B>,
-    pub instant: Option<InstantCore>,
-    pub deep: DeepCore,
-    pub router: Option<Router>,
-    pub attention: Option<Attention>,
-}

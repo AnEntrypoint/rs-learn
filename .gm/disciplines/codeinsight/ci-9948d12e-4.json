@@ -1,9 +1,0 @@
-crates/wasm/src/learn/instant_core.rs:229:236 norm_clamped_at_max
-fn norm_clamped_at_max() {
-        let mut core = InstantCore::new(vec!["m".into()]);
-        for x in core.adapter_a.iter_mut() { *x = 10.0; }
-        for x in core.adapter_b.iter_mut() { *x = 10.0; }
-        let emb = make_emb(3);
-        core.feedback(&emb, "m", FeedbackPayload { quality: 1.0, signal: None }, 1).unwrap();
-        assert!(core.adapter_norm() <= MAX_ADAPTER_NORM + 1e-4);
-    }

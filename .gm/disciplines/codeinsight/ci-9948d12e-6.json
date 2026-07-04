@@ -1,5 +1,0 @@
-crates/wasm/src/learn/instant_core.rs:209:212 adapter_norm_starts_zero
-fn adapter_norm_starts_zero() {
-        let core = InstantCore::new(vec!["a".into(), "b".into()]);
-        assert_eq!(core.adapter_norm(), 0.0);
-    }

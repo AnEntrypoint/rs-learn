@@ -1,4 +1,0 @@
-crates/wasm/src/learn/deep_core.rs:100:102 read_lambda
-fn read_lambda() -> f32 {
-    DEFAULT_LAMBDA
-}

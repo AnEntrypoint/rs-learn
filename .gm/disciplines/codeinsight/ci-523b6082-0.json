@@ -1,4 +1,0 @@
-crates/wasm/src/wasm_export.rs:53:55 rs_learn_version
-pub extern "C" fn rs_learn_version() -> *const u8 {
-    concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr()
-}

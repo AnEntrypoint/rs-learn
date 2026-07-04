@@ -1,8 +1,0 @@
-crates/wasm/src/learn/deep_core.rs:176:182 first_three_losses_never_fire
-fn first_three_losses_never_fire() {
-        let mut d = DeepCore::new();
-        assert!(!d.record_loss(0.5));
-        assert!(!d.record_loss(100.0));
-        assert!(!d.record_loss(0.5));
-        assert_eq!(d.boundaries_detected, 0);
-    }

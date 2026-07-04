@@ -1,8 +1,0 @@
-crates/wasm/src/router/core.rs:47:53 Heads
-pub struct Heads {
-    pub model: Vec<f32>, pub model_b: Vec<f32>,
-    pub ctx: Vec<f32>,   pub ctx_b: Vec<f32>,
-    pub temp: Vec<f32>,  pub temp_b: Vec<f32>,
-    pub top_p: Vec<f32>, pub top_p_b: Vec<f32>,
-    pub conf: Vec<f32>,  pub conf_b: Vec<f32>,
-}

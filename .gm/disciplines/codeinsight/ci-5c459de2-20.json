@@ -1,5 +1,0 @@
-crates/wasm/src/graph/attention.rs:36:39 Subgraph
-pub struct Subgraph {
-    pub nodes: Vec<SubgraphNode>,
-    pub edges: Vec<SubgraphEdge>,
-}

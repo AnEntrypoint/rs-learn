@@ -1,6 +1,0 @@
-crates/wasm/src/router/core.rs:363:367 softmax_argmax_picks_max
-fn softmax_argmax_picks_max() {
-        let (i, p) = softmax_argmax(&[0.0, 5.0, 1.0]);
-        assert_eq!(i, 1);
-        assert!(p > 0.9, "softmax mass on max should dominate, got {}", p);
-    }

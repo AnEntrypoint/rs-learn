@@ -1,5 +1,0 @@
-crates/wasm/src/graph/attention.rs:42:45 Context
-pub struct Context {
-    pub vector: Vec<f32>,
-    pub weights: Vec<Vec<f32>>,
-}

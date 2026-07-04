@@ -1,2 +1,0 @@
-crates/wasm/src/router/core.rs:120:120 sig
-pub fn sig(x: f32) -> f32 { 1.0 / (1.0 + (-x).exp()) }

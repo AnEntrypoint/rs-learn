@@ -1,5 +1,0 @@
-crates/wasm/src/learn/deep_core.rs:213:216 ewc_state_missing_returns_none
-fn ewc_state_missing_returns_none() {
-        let d = DeepCore::with_lambda(1.0);
-        assert!(d.ewc_state("nope").is_none());
-    }

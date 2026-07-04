@@ -1,5 +1,0 @@
-crates/wasm/src/router/core.rs:168:171 bucket_for_tokens
-pub fn bucket_for_tokens(n: u64) -> u8 {
-    for (i, &cap) in BUCKET_CAPS.iter().enumerate() { if n <= cap { return i as u8; } }
-    4
-}

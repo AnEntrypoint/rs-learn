@@ -1,6 +1,0 @@
-crates/wasm/src/pipeline.rs:56:60 mint_step_id
-fn mint_step_id() -> String {
-    let now = wasm_host::now_ms() as u64;
-    let r = fnv1a64(format!("{}|{}", now, now.wrapping_mul(2654435761)).as_bytes());
-    format!("stp_{:016x}", now ^ r)
-}

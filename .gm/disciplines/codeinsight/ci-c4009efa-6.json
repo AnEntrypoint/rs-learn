@@ -1,6 +1,0 @@
-crates/wasm/src/pipeline.rs:50:54 keyed_hash
-fn keyed_hash(key: &str, data: &str) -> String {
-    let inner = fnv1a64(format!("{}|{}", key, data).as_bytes());
-    let outer = fnv1a64(format!("{}|{:016x}", key, inner).as_bytes());
-    format!("{:016x}{:016x}", outer, inner)
-}

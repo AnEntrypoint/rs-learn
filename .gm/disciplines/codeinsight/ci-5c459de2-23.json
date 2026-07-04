@@ -1,6 +1,0 @@
-crates/wasm/src/graph/attention.rs:8:12 SubgraphNode
-pub struct SubgraphNode {
-    pub id: String,
-    pub embedding: Option<Vec<f32>>,
-    pub created_at: Option<i64>,
-}

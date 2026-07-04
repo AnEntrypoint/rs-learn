@@ -1,6 +1,0 @@
-crates/wasm/src/graph/time.rs:76:80 parses_y2k
-fn parses_y2k() {
-        let s = "2000-01-01T00:00:00.000Z";
-        let ms = parse_iso_ms(s).unwrap();
-        assert_eq!(format_iso(ms), s);
-    }

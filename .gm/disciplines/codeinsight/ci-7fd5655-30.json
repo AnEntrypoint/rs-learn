@@ -1,6 +1,0 @@
-crates/wasm/src/router/core.rs:33:37 
-impl RouterConfig {
-    pub fn new(in_dim: usize, targets: Vec<String>) -> Self {
-        Self { in_dim, targets, threshold: 200, epsilon: 0.0 }
-    }
-}

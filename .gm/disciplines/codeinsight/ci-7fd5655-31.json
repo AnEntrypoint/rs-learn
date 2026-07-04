@@ -1,7 +1,0 @@
-crates/wasm/src/router/core.rs:26:31 RouterConfig
-pub struct RouterConfig {
-    pub in_dim: usize,
-    pub targets: Vec<String>,
-    pub threshold: u64,
-    pub epsilon: f32,
-}

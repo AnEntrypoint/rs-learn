@@ -1,7 +1,0 @@
-crates/wasm/src/learn/deep_core.rs:105:110 read_lambda
-fn read_lambda() -> f32 {
-    std::env::var("RS_LEARN_EWC_LAMBDA").ok()
-        .and_then(|s| s.parse::<f32>().ok())
-        .filter(|v| v.is_finite() && *v > 0.0)
-        .unwrap_or(DEFAULT_LAMBDA)
-}

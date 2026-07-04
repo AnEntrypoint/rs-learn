@@ -1,4 +1,0 @@
-crates/wasm/src/wasm_export.rs:23:25 pack
-fn pack(ptr: *const u8, len: u32) -> u64 {
-    ((ptr as u64) & 0xFFFF_FFFF) | ((len as u64) << 32)
-}

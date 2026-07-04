@@ -1,6 +1,0 @@
-crates/wasm/src/graph/attention.rs:72:76 rand_matrix
-fn rand_matrix(rows: usize, cols: usize, rng: &mut impl FnMut() -> f32, scale: f32) -> Vec<f32> {
-    let mut m = vec![0.0f32; rows * cols];
-    for v in m.iter_mut() { *v = (rng() * 2.0 - 1.0) * scale; }
-    m
-}

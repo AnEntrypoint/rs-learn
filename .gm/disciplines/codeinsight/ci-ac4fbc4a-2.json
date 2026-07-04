@@ -1,6 +1,0 @@
-crates/wasm/src/graph/host_kv_backend.rs:8:12 KvEntry
-struct KvEntry {
-    key: String,
-    #[serde(default)]
-    value: Option<String>,
-}

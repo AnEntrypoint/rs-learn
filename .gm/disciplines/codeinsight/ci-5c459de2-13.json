@@ -1,4 +1,0 @@
-crates/wasm/src/graph/attention.rs:92:94 axpy
-fn axpy(scale: f32, src: &[f32], dst: &mut [f32]) {
-    for i in 0..src.len() { dst[i] += scale * src[i]; }
-}

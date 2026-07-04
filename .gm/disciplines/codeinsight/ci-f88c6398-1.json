@@ -1,9 +1,0 @@
-crates/wasm/src/graph/temporal_core.rs:350:357 invalidate_equal_timestamp_applies_update
-fn invalidate_equal_timestamp_applies_update() {
-        let mut g = TemporalGraph::new(MemKv::default());
-        let mut e = mk_edge("e1", "alice", "acme", 1000);
-        e.invalid_at = Some(2000);
-        g.insert_edge(e).unwrap();
-        g.invalidate_edge("e1", 2000, 2500).unwrap();
-        assert_eq!(g.get_edge("e1").unwrap().expired_at, Some(2500));
-    }
