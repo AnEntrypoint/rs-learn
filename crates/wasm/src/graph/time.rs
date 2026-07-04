@@ -15,6 +15,9 @@ pub fn parse_iso_ms(s: &str) -> Option<i64> {
     let hour: i64 = std::str::from_utf8(&b[11..13]).ok()?.parse().ok()?;
     let minute: i64 = std::str::from_utf8(&b[14..16]).ok()?.parse().ok()?;
     let second: i64 = std::str::from_utf8(&b[17..19]).ok()?.parse().ok()?;
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
     let days = days_from_civil(year, month, day);
     Some(days * 86_400_000 + hour * 3_600_000 + minute * 60_000 + second * 1_000)
 }
