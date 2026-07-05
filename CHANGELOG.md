@@ -1,3 +1,9 @@
+## [unreleased]
+
+### Fixed
+- `session_key`-keyed adapter/router/attention kv state had unsynchronized load-mutate-save races in `reset_adapter`, `record_outcome`, and `nudge_relation` -- only `feedback` had CAS-retry. Added `peek_router_version`/`peek_attention_version` plus matching retry loops so all four handlers share the same optimistic-concurrency guard.
+- Removed unreachable `EpisodeRow`/`NodeRow` dead code and their `NS_NODES` namespace const -- no dispatch verb ever constructed or queried them.
+
 ## [0.1.37]
 
 ### Changed
