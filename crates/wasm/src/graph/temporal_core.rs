@@ -66,6 +66,7 @@ impl<B: KvBackend> TemporalGraph<B> {
         Ok(())
     }
 
+    #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
     fn append_index(&mut self, ns: &str, key: &str, edge_id: &str) -> Result<(), String> {
         const MAX_RETRIES: u32 = 8;
         for attempt in 0..MAX_RETRIES {
@@ -85,6 +86,7 @@ impl<B: KvBackend> TemporalGraph<B> {
             if after_s.split(',').any(|e| e == edge_id) {
                 return Ok(());
             }
+            #[cfg(not(target_arch = "wasm32"))]
             if attempt + 1 < MAX_RETRIES {
                 let jitter = (edge_id.len() as u64 + attempt as u64 * 7) % 5;
                 let backoff_ms = (attempt as u64 + 1) * 2 + jitter;

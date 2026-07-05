@@ -19,7 +19,7 @@ struct RouterBlob {
     inference_count: u64,
     per_target_counts: Vec<u64>,
     per_target_quality_milli: Vec<u64>,
-    v: Vec<f32>, u: Vec<f32>, uh: Vec<f32>, bh: Vec<f32>, bz: Vec<f32>,
+    v: Vec<f32>, u: Vec<f32>, bh: Vec<f32>, bz: Vec<f32>,
     h_model: Vec<f32>, h_model_b: Vec<f32>,
     h_ctx: Vec<f32>, h_ctx_b: Vec<f32>,
     h_temp: Vec<f32>, h_temp_b: Vec<f32>,
@@ -39,7 +39,7 @@ pub fn save_router(r: &Router, key: &str) -> Result<()> {
         inference_count: r.inference_count,
         per_target_counts: r.per_target_counts.clone(),
         per_target_quality_milli: r.per_target_quality_milli.clone(),
-        v: r.w.v.clone(), u: r.w.u.clone(), uh: r.w.uh.clone(),
+        v: r.w.v.clone(), u: r.w.u.clone(),
         bh: r.w.bh.clone(), bz: r.w.bz.clone(),
         h_model: r.heads.model.clone(), h_model_b: r.heads.model_b.clone(),
         h_ctx: r.heads.ctx.clone(),     h_ctx_b: r.heads.ctx_b.clone(),
@@ -73,7 +73,7 @@ pub fn load_router(key: &str) -> Result<Option<Router>> {
     }
     let mut r = Router::new(cfg).map_err(|e| crate::errors::LlmError::Process(e))?;
     let w = Weights {
-        v: blob.v, u: blob.u, uh: blob.uh, bh: blob.bh, bz: blob.bz,
+        v: blob.v, u: blob.u, bh: blob.bh, bz: blob.bz,
     };
     let h = Heads {
         model: blob.h_model, model_b: blob.h_model_b,
@@ -84,15 +84,13 @@ pub fn load_router(key: &str) -> Result<Option<Router>> {
     };
     let weights_match = w.v.len() == r.w.v.len()
         && w.u.len() == r.w.u.len()
-        && w.uh.len() == r.w.uh.len()
         && h.model.len() == r.heads.model.len();
     if blob.trained && !weights_match {
         let msg = format!(
-            "router persist: dimension mismatch for key {}, reverting trained=false (v={} vs {}, u={} vs {}, uh={} vs {}, model={} vs {})",
+            "router persist: dimension mismatch for key {}, reverting trained=false (v={} vs {}, u={} vs {}, model={} vs {})",
             key,
             w.v.len(), r.w.v.len(),
             w.u.len(), r.w.u.len(),
-            w.uh.len(), r.w.uh.len(),
             h.model.len(), r.heads.model.len(),
         );
         wasm_host::log(&msg);

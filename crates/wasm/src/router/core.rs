@@ -39,7 +39,6 @@ impl RouterConfig {
 pub struct Weights {
     pub v: Vec<f32>,
     pub u: Vec<f32>,
-    pub uh: Vec<f32>,
     pub bh: Vec<f32>,
     pub bz: Vec<f32>,
 }
@@ -85,13 +84,12 @@ fn dot(a: &[f32], b: &[f32]) -> f32 {
 
 pub fn init_weights(in_dim: usize) -> Weights {
     let mut rnd = mulberry32(SEED);
-    let (sv, su, sh) = (1.0 / (in_dim as f32).sqrt(), 1.0 / (RANK as f32).sqrt(), 1.0 / (DIM as f32).sqrt());
+    let (sv, su) = (1.0 / (in_dim as f32).sqrt(), 1.0 / (RANK as f32).sqrt());
     let mut v = vec![0f32; RANK * in_dim]; for x in v.iter_mut() { *x = randn(&mut rnd) * sv; }
     let mut u = vec![0f32; DIM * RANK];     for x in u.iter_mut() { *x = randn(&mut rnd) * su; }
-    let mut uh = vec![0f32; DIM * DIM];     for x in uh.iter_mut() { *x = randn(&mut rnd) * sh; }
     let mut mrnd = mulberry32(SEED ^ 0x9E37);
     for i in 0..u.len() { if mrnd() < SPARSITY { u[i] = 0.0; } }
-    Weights { v, u, uh, bh: vec![0f32; DIM], bz: vec![0f32; DIM] }
+    Weights { v, u, bh: vec![0f32; DIM], bz: vec![0f32; DIM] }
 }
 
 pub fn init_heads(n_targets: usize) -> Heads {
@@ -288,7 +286,6 @@ mod tests {
         assert_eq!(r.config.targets.len(), 3);
         assert_eq!(r.w.v.len(), RANK * 384);
         assert_eq!(r.w.u.len(), DIM * RANK);
-        assert_eq!(r.w.uh.len(), DIM * DIM);
         assert_eq!(r.heads.model.len(), 3 * DIM);
         assert_eq!(r.heads.ctx.len(), CTX_BUCKETS * DIM);
     }
