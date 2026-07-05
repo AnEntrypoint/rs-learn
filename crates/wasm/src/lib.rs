@@ -14,6 +14,6 @@ pub mod wasm_export;
 pub use errors::{LlmError, Result};
 pub use embeddings::EMBED_DIM;
 pub use learn::{InstantCore, FeedbackPayload, EwcState};
-pub use graph::{TemporalGraph, KvBackend, InvalidationOutcome, EdgeRow, NodeRow, EpisodeRow};
+pub use graph::{TemporalGraph, KvBackend, InvalidationOutcome, EdgeRow};
 pub use router::{Router, Route, RouteCtx, RouterConfig};
 pub use dispatch::{DispatchRequest, DispatchResponse, LearnSession, dispatch_json};

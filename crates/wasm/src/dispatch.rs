@@ -156,15 +156,6 @@ impl<B: KvBackend> LearnSession<B> {
         Ok(json!({ "n_targets": targets.len() }))
     }
 
-    // handle_feedback is the highest-traffic session-keyed handler, so it carries the
-    // read-recheck-write retry below (optimistic concurrency via persist_version, mirroring
-    // the rs-plugkit cas_retry_write shape). The host KV backend (host_kv_backend.rs /
-    // wasm_host::kv_get+kv_put) exposes no true compare-and-swap primitive -- only plain
-    // get/put -- so this narrows but cannot fully close the race: apply_adapter, reset_adapter,
-    // init_router, route, record_outcome, init_attention, nudge_relation and attend below do
-    // the same unsynchronized load-mutate-save against session_key-keyed kv state and share
-    // the same window; they are not yet covered and should get the same treatment (or a shared
-    // helper) in a follow-up pass.
     fn handle_feedback(&mut self, body: Value) -> Result<Value, String> {
         #[cfg(target_arch = "wasm32")]
         let session_key = session_key(&body);
@@ -241,11 +232,36 @@ impl<B: KvBackend> LearnSession<B> {
     fn handle_reset_adapter(&mut self, #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))] body: Value) -> Result<Value, String> {
         #[cfg(target_arch = "wasm32")]
         let session_key = session_key(&body);
-        let core = self.instant.as_mut().ok_or("instant not initialized")?;
-        core.reset_adapter();
         #[cfg(target_arch = "wasm32")]
-        crate::learn::persist::save_adapter(core, &session_key).map_err(|e| format!("save_adapter: {:?}", e))?;
-        Ok(json!({ "resets_performed": core.resets_performed }))
+        const MAX_RETRIES: u32 = 5;
+        #[cfg(target_arch = "wasm32")]
+        let mut attempt = 0u32;
+        loop {
+            let core = self.instant.as_mut().ok_or("instant not initialized")?;
+            core.reset_adapter();
+            core.persist_version = core.persist_version.wrapping_add(1);
+            let resp = json!({ "resets_performed": core.resets_performed });
+            #[cfg(target_arch = "wasm32")]
+            {
+                let expected_version = core.persist_version.wrapping_sub(1);
+                let observed = crate::learn::persist::peek_adapter_version(&session_key)
+                    .map_err(|e| format!("peek_adapter_version: {:?}", e))?;
+                if let Some(observed_version) = observed {
+                    if observed_version != expected_version && attempt < MAX_RETRIES {
+                        if let Some(fresh) = crate::learn::persist::load_adapter(&session_key)
+                            .map_err(|e| format!("load_adapter: {:?}", e))?
+                        {
+                            self.instant = Some(fresh);
+                            attempt += 1;
+                            continue;
+                        }
+                    }
+                }
+                let core = self.instant.as_ref().unwrap();
+                crate::learn::persist::save_adapter(core, &session_key).map_err(|e| format!("save_adapter: {:?}", e))?;
+            }
+            return Ok(resp);
+        }
     }
 
     fn handle_record_loss(&mut self, body: Value) -> Result<Value, String> {
@@ -354,18 +370,43 @@ impl<B: KvBackend> LearnSession<B> {
                 self.router = Some(r);
             }
         }
-        let r = self.router.as_mut().ok_or("router not initialized")?;
-        let target = body.get("target").and_then(|v| v.as_str()).ok_or("target required")?;
+        let target = body.get("target").and_then(|v| v.as_str()).ok_or("target required")?.to_string();
         let quality = body.get("quality").and_then(|v| v.as_f64()).ok_or("quality required")? as f32;
-        r.record_outcome(target, quality);
         #[cfg(target_arch = "wasm32")]
-        crate::router::persist::save_router(r, &session_key).map_err(|e| format!("save_router: {:?}", e))?;
-        let idx = r.config.targets.iter().position(|t| t == target);
-        Ok(json!({
-            "target": target,
-            "count": idx.map(|i| r.per_target_counts[i]).unwrap_or(0),
-            "quality_milli": idx.map(|i| r.per_target_quality_milli[i]).unwrap_or(0),
-        }))
+        const MAX_RETRIES: u32 = 5;
+        #[cfg(target_arch = "wasm32")]
+        let mut attempt = 0u32;
+        loop {
+            let r = self.router.as_mut().ok_or("router not initialized")?;
+            r.record_outcome(&target, quality);
+            r.version = r.version.wrapping_add(1);
+            let idx = r.config.targets.iter().position(|t| t == &target);
+            let resp = json!({
+                "target": target,
+                "count": idx.map(|i| r.per_target_counts[i]).unwrap_or(0),
+                "quality_milli": idx.map(|i| r.per_target_quality_milli[i]).unwrap_or(0),
+            });
+            #[cfg(target_arch = "wasm32")]
+            {
+                let expected_version = r.version.wrapping_sub(1);
+                let observed = crate::router::persist::peek_router_version(&session_key)
+                    .map_err(|e| format!("peek_router_version: {:?}", e))?;
+                if let Some(observed_version) = observed {
+                    if observed_version != expected_version && attempt < MAX_RETRIES {
+                        if let Some(fresh) = crate::router::persist::load_router(&session_key)
+                            .map_err(|e| format!("load_router: {:?}", e))?
+                        {
+                            self.router = Some(fresh);
+                            attempt += 1;
+                            continue;
+                        }
+                    }
+                }
+                let r = self.router.as_ref().unwrap();
+                crate::router::persist::save_router(r, &session_key).map_err(|e| format!("save_router: {:?}", e))?;
+            }
+            return Ok(resp);
+        }
     }
 
     fn handle_init_attention(&mut self, body: Value) -> Result<Value, String> {
@@ -379,7 +420,7 @@ impl<B: KvBackend> LearnSession<B> {
         let session_key = session_key(&body);
         let a = Attention::new(dim, heads, head_dim, seed);
         #[cfg(target_arch = "wasm32")]
-        crate::graph::attention_persist::save_attention(&a, seed, &session_key).map_err(|e| format!("save_attention: {:?}", e))?;
+        crate::graph::attention_persist::save_attention(&a, seed, &session_key, 0).map_err(|e| format!("save_attention: {:?}", e))?;
         self.attention = Some(a);
         Ok(json!({ "dim": dim, "heads": heads, "head_dim": head_dim }))
     }
@@ -389,26 +430,31 @@ impl<B: KvBackend> LearnSession<B> {
         let quality = body.get("signed_quality").and_then(|v| v.as_f64()).ok_or("signed_quality required")? as f32;
         #[cfg(target_arch = "wasm32")]
         {
-            // wasm32 treats kv as the source of truth, not self.attention: a fresh
-            // LearnSession (new worker, new call) has an empty in-memory field even
-            // when a prior call already persisted attention state for this session_key.
-            // So "not initialized" here is decided by the kv lookup, matching handle_attend's
-            // load-on-demand fallback, not by self.attention.is_none().
             let session_key = session_key(&body);
-            let (a, seed) = crate::graph::attention_persist::load_attention(&session_key)
-                .map_err(|e| format!("load_attention: {:?}", e))?
-                .ok_or("attention not initialized; call init_attention first")?;
-            let mut a = a;
-            a.nudge_relation(&relation, quality);
-            crate::graph::attention_persist::save_attention(&a, seed, &session_key).map_err(|e| format!("save_attention: {:?}", e))?;
-            self.attention = Some(a);
+            const MAX_RETRIES: u32 = 5;
+            let mut attempt = 0u32;
+            loop {
+                let (mut a, seed, version) = crate::graph::attention_persist::load_attention(&session_key)
+                    .map_err(|e| format!("load_attention: {:?}", e))?
+                    .ok_or("attention not initialized; call init_attention first")?;
+                a.nudge_relation(&relation, quality);
+                let next_version = version.wrapping_add(1);
+                let observed = crate::graph::attention_persist::peek_attention_version(&session_key)
+                    .map_err(|e| format!("peek_attention_version: {:?}", e))?;
+                if let Some(observed_version) = observed {
+                    if observed_version != version && attempt < MAX_RETRIES {
+                        attempt += 1;
+                        continue;
+                    }
+                }
+                crate::graph::attention_persist::save_attention(&a, seed, &session_key, next_version).map_err(|e| format!("save_attention: {:?}", e))?;
+                self.attention = Some(a);
+                break;
+            }
             return Ok(json!({ "relation": relation, "nudged": true }));
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            // Non-wasm32 has no kv-persistence layer wired to LearnSession, so
-            // self.attention is the only source of truth: "not initialized" means
-            // this session object never had init_attention called on it.
             let a = self.attention.as_mut().ok_or("attention not initialized")?;
             a.nudge_relation(&relation, quality);
             Ok(json!({ "relation": relation, "nudged": true }))
@@ -419,7 +465,7 @@ impl<B: KvBackend> LearnSession<B> {
         #[cfg(target_arch = "wasm32")]
         if self.attention.is_none() {
             let session_key = session_key(&body);
-            if let Some((a, _s)) = crate::graph::attention_persist::load_attention(&session_key).map_err(|e| format!("load_attention: {:?}", e))? {
+            if let Some((a, _s, _v)) = crate::graph::attention_persist::load_attention(&session_key).map_err(|e| format!("load_attention: {:?}", e))? {
                 self.attention = Some(a);
             }
         }

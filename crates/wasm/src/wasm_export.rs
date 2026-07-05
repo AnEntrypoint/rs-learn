@@ -15,14 +15,6 @@ pub extern "C" fn rs_learn_alloc(len: usize) -> *mut u8 {
     p
 }
 
-// SAFETY CONTRACT: rs_learn_free MUST be called with the exact same `ptr`
-// and `len` that rs_learn_alloc/rs_learn_dispatch returned/reported for this
-// allocation. It reconstructs the Vec via Vec::from_raw_parts(ptr, len, len),
-// using `len` as both the reconstructed length and capacity, matching
-// rs_learn_alloc's `with_capacity(len)` and leak_bytes' packed length. A
-// mismatched len is undefined behavior (wrong capacity handed to the
-// deallocator). The host must echo back the original alloc/dispatch length
-// verbatim, never a derived "bytes actually used" count.
 #[no_mangle]
 pub extern "C" fn rs_learn_free(ptr: *mut u8, len: usize) {
     if ptr.is_null() || len == 0 { return; }

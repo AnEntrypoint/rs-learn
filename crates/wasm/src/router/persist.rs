@@ -51,6 +51,13 @@ pub fn save_router(r: &Router, key: &str) -> Result<()> {
     wasm_host::kv_put(NS, key, &json)
 }
 
+pub fn peek_router_version(key: &str) -> Result<Option<i64>> {
+    let bytes = wasm_host::kv_get(NS, key)?;
+    if bytes.is_empty() { return Ok(None); }
+    let blob: RouterBlob = serde_json::from_slice(&bytes)?;
+    Ok(Some(blob.version))
+}
+
 pub fn load_router(key: &str) -> Result<Option<Router>> {
     let bytes = wasm_host::kv_get(NS, key)?;
     if bytes.is_empty() { return Ok(None); }

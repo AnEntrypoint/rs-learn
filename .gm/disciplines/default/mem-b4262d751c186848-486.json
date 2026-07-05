@@ -1,0 +1,3 @@
+## Resolved mutable: mut-sessionkey-cas
+
+crates/wasm/src/dispatch.rs handle_reset_adapter/handle_record_outcome/handle_nudge_relation now do load-recheck-save with version peek (peek_adapter_version, new peek_router_version in router/persist.rs, new peek_attention_version+version field in attention_persist.rs), MAX_RETRIES=5, mirroring handle_feedback's existing CAS pattern; cargo build -p rs-learn --target wasm32-unknown-unknown and cargo test -p rs-learn both green (69/69 passed)

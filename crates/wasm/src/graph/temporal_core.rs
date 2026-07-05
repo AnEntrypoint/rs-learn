@@ -4,7 +4,6 @@ use std::collections::HashMap;
 pub const NS_EDGES: &str = "rs-learn/graph/edges";
 pub const NS_EDGES_BY_SRC: &str = "rs-learn/graph/edges_by_src";
 pub const NS_EDGES_BY_DST: &str = "rs-learn/graph/edges_by_dst";
-pub const NS_NODES: &str = "rs-learn/graph/nodes";
 
 pub trait KvBackend {
     fn get(&self, namespace: &str, key: &str) -> Option<Vec<u8>>;
@@ -67,14 +66,6 @@ impl<B: KvBackend> TemporalGraph<B> {
         Ok(())
     }
 
-    // Known perf tradeoff: KvBackend exposes only get/put/list_prefix, no O(1)
-    // append primitive, so each insert on a hub key re-reads and re-parses the
-    // entire comma-joined edge-id string (O(n) in that key's degree). The
-    // membership check + post-write byte comparison are correctness-required
-    // (detects duplicate inserts and lost updates from a concurrent writer),
-    // not incidental double work, so they are not candidates for removal.
-    // A true fix needs a delimited/length-prefixed append-only KvBackend
-    // primitive; deferred as a storage-format change out of scope here.
     fn append_index(&mut self, ns: &str, key: &str, edge_id: &str) -> Result<(), String> {
         const MAX_RETRIES: u32 = 8;
         for attempt in 0..MAX_RETRIES {
