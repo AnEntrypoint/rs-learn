@@ -323,7 +323,7 @@ impl<B: KvBackend> LearnSession<B> {
         let trained = body.get("trained").and_then(|v| v.as_bool()).unwrap_or(false);
         #[cfg(target_arch = "wasm32")]
         let session_key = session_key(&body);
-        let mut r = Router::new(cfg).map_err(|e| e)?;
+        let mut r = Router::new(cfg)?;
         if trained { r.set_trained(true); }
         #[cfg(target_arch = "wasm32")]
         crate::router::persist::save_router(&r, &session_key).map_err(|e| format!("save_router: {:?}", e))?;

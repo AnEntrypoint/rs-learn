@@ -27,10 +27,10 @@ fn pack(ptr: *const u8, len: u32) -> u64 {
 
 fn leak_bytes(bytes: Vec<u8>) -> u64 {
     if bytes.is_empty() { return 0; }
-    let len = bytes.len() as u32;
-    let mut v = bytes;
-    let ptr = v.as_mut_ptr();
-    core::mem::forget(v);
+    let mut b = bytes.into_boxed_slice();
+    let len = b.len() as u32;
+    let ptr = b.as_mut_ptr();
+    core::mem::forget(b);
     pack(ptr, len)
 }
 
