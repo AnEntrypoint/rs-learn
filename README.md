@@ -26,12 +26,11 @@ The wasm module imports six functions:
 host_kv_get   (ns_ptr, ns_len, key_ptr, key_len)                        -> u64  // packed ptr+len
 host_kv_put   (ns_ptr, ns_len, key_ptr, key_len, val_ptr, val_len)      -> u32  // nonzero = ok, 0 = failure
 host_kv_query (ns_ptr, ns_len, query_ptr, query_len)                    -> u64
-host_vec_search (query_ptr, query_len, k)                                -> u64
 host_log      (level, msg_ptr, msg_len)                                  -> u32
 host_now_ms   ()                                                          -> i64
 ```
 
-`host_kv_query` returns a JSON array of `[{key, value?}]` entries matching a key prefix.
+`host_kv_query` returns a JSON array of `[{key, value?}]` entries. The `query` parameter is not a pure key-prefix filter at the host level: the reference host (gm-plugkit's JS wrapper) substring-matches `query` against key **or value** content and scans the entire namespace on every call (`O(namespace)` IO per query, no index). This crate never relies on the host doing prefix-only matching -- every caller (`graph::host_kv_backend::HostKv::list_prefix`) re-filters the returned entries client-side with `key.starts_with(prefix)` before use, so correctness holds regardless of host-side matching semantics. Treat `host_kv_query` as a coarse, whole-namespace substring scan; do not assume prefix-only semantics or sub-linear cost when implementing a new host.
 
 ## Wasm exports
 
@@ -52,7 +51,7 @@ Every call is `{ "verb": "<name>", "body": { ... } }` in, `{ "ok": bool, "verb":
 | --- | --- | --- |
 | `health` | `{}` | Reports core readiness, Fisher key count, boundary count |
 | `init_instant` | `{targets: [String]}` | Initialize MicroLoRA adapter |
-| `feedback` | `{embedding, model, payload:{quality, signal?}, now_ms}` | Hebbian update + replay |
+| `feedback` | `{embedding, model, payload:{quality}, now_ms}` | Hebbian update + replay |
 | `apply_adapter` | `{embedding}` | Run adapter forward, return logits |
 | `reset_adapter` | `{}` | Zero adapter, reset LR |
 | `record_loss` | `{loss}` | Add to loss ring; returns whether z-score boundary fired |

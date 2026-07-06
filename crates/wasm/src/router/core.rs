@@ -5,6 +5,17 @@ pub const CTX_BUCKETS: usize = 5;
 pub const SEED: u32 = 0xC0A5;
 pub const BUCKET_CAPS: [u64; 5] = [1000, 4000, 16000, 64000, u64::MAX];
 
+static EXPLORATION_NONCE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+fn exploration_entropy() -> u32 {
+    let call_idx = EXPLORATION_NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let clock = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0);
+    call_idx ^ clock
+}
+
 #[derive(Debug, Clone)]
 pub struct Route {
     pub model: String,
@@ -206,7 +217,7 @@ impl Router {
         let prior = self.per_target_quality_milli[idx] as f64 / 1000.0;
         let alpha = 0.1;
         let new_q = (1.0 - alpha) * prior + alpha * q;
-        self.per_target_quality_milli[idx] = (new_q * 1000.0) as u64;
+        self.per_target_quality_milli[idx] = (new_q * 1000.0).round() as u64;
         self.per_target_counts[idx] += 1;
     }
 
@@ -232,7 +243,7 @@ impl Router {
         let nt = self.config.targets.len();
         let eps = self.config.epsilon.clamp(0.0, 1.0);
         let (idx, exploration) = if nt > 1 && eps > 0.0 {
-            let seed = SEED ^ (self.inference_count as u32);
+            let seed = SEED ^ (self.inference_count as u32) ^ exploration_entropy();
             let mut rng = mulberry32(seed);
             if rng() < eps {
                 let mut alt = (rng() * (nt as f32 - 1.0)) as usize;
@@ -261,6 +272,7 @@ impl Router {
         self.version += 1;
     }
 
+    #[cfg(test)]
     pub fn sparsity_fraction(&self) -> f32 {
         let zeros = self.w.u.iter().filter(|&&x| x == 0.0).count() as f32;
         zeros / self.w.u.len() as f32

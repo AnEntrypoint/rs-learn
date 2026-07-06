@@ -14,7 +14,6 @@ extern "C" {
         val_len: u32,
     ) -> u32;
     pub fn host_kv_query(ns_ptr: *const u8, ns_len: u32, query_ptr: *const u8, query_len: u32) -> u64;
-    pub fn host_vec_search(query_ptr: *const u8, query_len: u32, k: u32) -> u64;
     pub fn host_log(level: u32, msg_ptr: *const u8, msg_len: u32) -> u32;
     pub fn host_now_ms() -> i64;
 }
@@ -85,7 +84,3 @@ pub fn kv_query(namespace: &str, query: &str) -> Result<Vec<u8>> {
     Ok(unsafe { take_bytes(packed) })
 }
 
-pub fn vec_search(query: &str, k: u32) -> Result<Vec<u8>> {
-    let packed = unsafe { host_vec_search(query.as_ptr(), query.len() as u32, k) };
-    Ok(unsafe { take_bytes(packed) })
-}

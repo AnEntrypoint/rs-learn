@@ -305,7 +305,9 @@ impl<B: KvBackend> LearnSession<B> {
             .map_err(|e| format!("params parse: {}", e))?;
         #[cfg(target_arch = "wasm32")]
         if !self.deep.fisher.contains_key(&param_id) {
-            let _ = crate::learn::persist::load_fisher_into(&mut self.deep, &param_id);
+            let best_effort_warm_load: crate::errors::Result<bool> =
+                crate::learn::persist::load_fisher_into(&mut self.deep, &param_id);
+            let _ = best_effort_warm_load;
         }
         let penalty = self.deep.ewc_penalty(&param_id, &params);
         Ok(json!({ "penalty": penalty }))

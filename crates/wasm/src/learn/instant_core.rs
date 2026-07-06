@@ -10,8 +10,6 @@ pub const REPLAY_CAP: usize = 64;
 #[derive(Debug, Clone, Deserialize)]
 pub struct FeedbackPayload {
     pub quality: f32,
-    #[serde(default)]
-    pub signal: Option<String>,
 }
 
 pub struct EwcState {
@@ -232,7 +230,7 @@ mod tests {
         let emb = make_emb(7);
         let mut prev = 0f32;
         for i in 0..100 {
-            core.feedback(&emb, "m", FeedbackPayload { quality: 1.0, signal: None }, i as i64).unwrap();
+            core.feedback(&emb, "m", FeedbackPayload { quality: 1.0 }, i as i64).unwrap();
             let n = core.adapter_norm();
             assert!(n <= MAX_ADAPTER_NORM + 1e-4, "norm {} exceeded bound at step {}", n, i);
             prev = n;
@@ -246,7 +244,7 @@ mod tests {
         for x in core.adapter_a.iter_mut() { *x = 10.0; }
         for x in core.adapter_b.iter_mut() { *x = 10.0; }
         let emb = make_emb(3);
-        core.feedback(&emb, "m", FeedbackPayload { quality: 1.0, signal: None }, 1).unwrap();
+        core.feedback(&emb, "m", FeedbackPayload { quality: 1.0 }, 1).unwrap();
         assert!(core.adapter_norm() <= MAX_ADAPTER_NORM + 1e-4);
     }
 
@@ -255,7 +253,7 @@ mod tests {
         let mut core = InstantCore::new(vec!["m".into()]);
         let emb = make_emb(11);
         for i in 0..10_000 {
-            core.feedback(&emb, "m", FeedbackPayload { quality: 0.6, signal: None }, i).unwrap();
+            core.feedback(&emb, "m", FeedbackPayload { quality: 0.6 }, i).unwrap();
         }
         assert!(core.lr >= core.lr_min - 1e-9, "lr {} fell below floor {}", core.lr, core.lr_min);
     }
@@ -264,7 +262,7 @@ mod tests {
     fn neutral_feedback_no_change() {
         let mut core = InstantCore::new(vec!["m".into()]);
         let emb = make_emb(5);
-        core.feedback(&emb, "m", FeedbackPayload { quality: 0.5, signal: None }, 1).unwrap();
+        core.feedback(&emb, "m", FeedbackPayload { quality: 0.5 }, 1).unwrap();
         assert_eq!(core.adapter_norm(), 0.0);
     }
 
@@ -272,7 +270,7 @@ mod tests {
     fn reset_zeros_adapter() {
         let mut core = InstantCore::new(vec!["m".into()]);
         let emb = make_emb(2);
-        for i in 0..20 { core.feedback(&emb, "m", FeedbackPayload { quality: 1.0, signal: None }, i).unwrap(); }
+        for i in 0..20 { core.feedback(&emb, "m", FeedbackPayload { quality: 1.0 }, i).unwrap(); }
         assert!(core.adapter_norm() > 0.0);
         core.reset_adapter();
         assert_eq!(core.adapter_norm(), 0.0);
@@ -284,7 +282,7 @@ mod tests {
     fn unknown_target_errors() {
         let mut core = InstantCore::new(vec!["m".into()]);
         let emb = make_emb(9);
-        let err = core.feedback(&emb, "unknown", FeedbackPayload { quality: 1.0, signal: None }, 1);
+        let err = core.feedback(&emb, "unknown", FeedbackPayload { quality: 1.0 }, 1);
         assert!(err.is_err());
         assert_eq!(core.adapter_norm(), 0.0);
         assert_eq!(core.feedback_count, 0);
