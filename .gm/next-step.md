@@ -1,67 +1,84 @@
 # Next step
 
-Phase: EXECUTE
-Updated: 1783310130221
+Phase: VERIFY
+Updated: 1783310380217
 
 ---
 
-# EXECUTE
+# VERIFY
 
-YOU are the state machine. Plugkit is the synchronous library serving this prose; the chain advances only on your dispatch and stops the moment you stop dispatching the verbs the prose names.
+YOU are the state machine. Plugkit does not validate in the background -- you read the four observations and decide whether to `transition`.
 
-L3 distance + audit: real input -> real code -> real output, witnessed.
+L3 trajectory; `transition` iff every observation is convergent.
 
-## Mutable-gate (hard rule)
+```
+[worktree-clean] [remote-pushed] [prd-empty] [mutables-witnessed]
+```
 
-EXECUTE's job: drain every pending mutable to resolved before EMIT. Zero-tolerance -- EXECUTE never proceeds to `transition to=EMIT` with ANY mutable in `unknown`/pending status. Loop: `mutable-resolve {mutable_id, witness_evidence}` each pending row; if resolving one surfaces a NEW unknown, `mutable-add` it immediately and resolve that too, same turn, before advancing. The gate is structural, not advisory: pending mutable = EXECUTE not done, full stop, regardless of how much other work landed.
+All four true = convergence -> `transition`. Any false defers, holds, or regresses.
 
-Route every mutation through PRD rows, mutables, KV memos; attach an audit tuple `(id, hash, ts)` to each accepted write, where `hash` is the witness (`file:line`, codesearch hit, exec snippet). `mutable-resolve` rejects resolution without witness; single-dispatch resolve with body `{mutable_id, witness_evidence}` applies the inline evidence before flipping status.
+## Push and worktree-clean
 
-**Search-only-via-verb, hard rule, binds mid-EXECUTE hardest.** Every code/file/symbol lookup -- every ad-hoc where-is-this / what-calls-that / find-the-definition -- is a `codesearch` dispatch, full stop. Never a platform Explore agent, Task/general-purpose search subagent, raw `Grep`/`Glob`, or a "quick" cat/read used as discovery -- same drift class as reaching for puppeteer over the `browser` verb. Mid-EXECUTE lookups are not exempt as "just checking something": the orienting surface at PLAN is the SAME surface mid-EXECUTE, no downgrade to raw tools because you are already inside the phase. Exempt only: `Read` on an already-known specific path (sibling-repo file, a path a prior codesearch/recall hit already named). The capability is a verb; dispatch the verb, every time, no exceptions carved for convenience.
+`git_push` is the only admissible push surface, any repo, any cwd -- runs `[worktree-clean]` porcelain probe internally, refuses dirty. `git_finalize {message}` bundles add -> commit -> probe -> push. Sibling push: `git_push {repo:"<abs>", branch:"<branch>"}` (probes inside target tree). Raw `git` shell body gated `deviation.bash-git-bypass`; `cd <repo> && git push` bypasses the probe even clean, ccsniff flags every raw push. Raw-Bash-git fallback: `git status --porcelain` its own Bash tool-use event before push, never `&&`-chained -- ccsniff `--git-discipline` scans the last 20 Bash events, one chained event has no witness. Non-empty bytes = unstaged residual: stage-commit or revert first, a dirty-tree push advances an unwitnessed slice and breaks the next session.
 
-## Always-rearchitect-immediately (hard rule)
+## CI
 
-An in-spirit architectural improvement discovered mid-EXECUTE -- clearly better, not merely different -- is neither a note-for-later nor "finish this pass first." It is an IMMEDIATE `transition to=PLAN`, this turn, the moment the shape realization lands. Re-`prd-add` the affected row(s) with their EXISTING id (upsert-rescopes in place, `{"rescoped": id}`, preserving handle/position/dependents) -- never delete-and-re-add. Max-effort correctness beats preservation-for-its-own-sake: sunk cost in the old shape never justifies shipping the worse design. The urge to write "I should rearchitect this" IS the trigger -- narrating it instead of dispatching `transition to=PLAN` strands the chain pointed at a stale plan. Generalizes the additive-vs-reshaping split below: reshaping is always immediate, never batched, never deferred.
+Verification is thinking run rather than reasoned: "is this correct?" is executed, not argued -- real test, real matrix, real page answer it. The push IS the validation dispatch. Local proof covers one platform; matrix covers all. Red = divergent observation holding the trajectory until cause-named and green re-pushed; toolchain skew converges, does not stop.
 
-## Witness
+## Adversarial corner-case sweep (hard rule)
 
-You reason in code, not silent prose: an unrun thought is a guess. The hypothesis becomes `exec_js`/`codesearch`/`page.evaluate`; its output is the conclusion. Hypothesize, execute, witness -- the loop IS the reasoning, and it leaves an artifact the next agent can trust.
+VERIFY is adversarial, never confirmatory: hunt every way EMIT's write breaks, via real `exec_js`/`browser` execution, never prose reasoning. Each class below gets its own exec_js/browser dispatch witnessing outcome (pass or found-and-fixed) before transitioning on; a reachable-but-unswept class is not an implicit pass:
 
-Witness IS the distance measurement: an observable artifact means `d(state, goal)` decreased. Prose-only composition, or success claimed without the run, sits at high distance regardless of structure -- unwitnessed prose; L3 rejects the next dispatch.
+- **empty/overflow/reentry**: zero-length input, max-size/overflow input, same op mid-flight (reentrant call).
+- **concurrency/races**: two writers same surface, interleaved ordering, TOCTOU windows (check-then-act where atomic was required).
+- **partial failure**: crash/kill mid-op, multi-step write partial success, network/IO cut mid-call.
+- **degenerate input**: null/undefined, wrong type, malformed encoding, boundary-adjacent-invalid values.
+- **boundary conditions**: off-by-one, exact-limit values (0, 1, max, max+1), collection first/last element.
+- **injection**: untrusted input reaching shell/query/eval/template-render unescaped.
+- **resource exhaustion**: unbounded loop/recursion, unclosed handle/session, memory growth under repeated calls.
+- **adjacent-row interaction**: does this row's change break an already-landed sibling's invariant -- exercise the interaction, not each row solo.
 
-Witness code on the surface it runs, same turn -- a pass on surface A is not witness for code on surface B. Browser surface: dispatch `browser` (`in/browser/<N>.txt`, raw JS, globals `page`/`snapshot`/`screenshotWithAccessibilityLabels`/`state`; `session new|list|close <id>`).
+Each class exercised = exec_js/browser dispatch + witness (pass or fix-then-rewitness), same turn, before `transition`. A happy-path-only VERIFY has not verified.
 
-**Client-side edits force a same-turn browser dispatch.** Write/Edit on `.html .js .jsx .ts .tsx .vue .svelte .mjs .css` or any `<script>`/`import`-reached browser-entry path requires, same turn, a `browser` Write to `.gm/exec-spool/in/browser/<N>.txt` `page.evaluate`-ing the edit's invariant, plus its Read. No staging "validate later" -- later never arrives. `transition to=EMIT` refuses on dirty client-side files lacking a paired same-turn browser-witness; `deviation.client-edit-no-witness` fires, re-execute with the witness dispatch.
+## Integration witness
 
-## Surface -> mutable
+`test.js` at root, 200-line ceiling, real services only (mock-free) -- the single witness IS the test surface, proving a full real session end-to-end. Not one gate beside a conventional unit suite: a growing mock-heavy multi-file `test/` is the pattern gm replaces, never a coexisting exemption; the cap does not bless a parallel suite. More than the single real-services witness needs justifying, never default. Pass = integration witness; fail -> `transition` back to EXECUTE. `recursive` classifier = incomplete cover -- snake back, do not narrate past signal.
 
-State diverging from the PRD's assumed shape = new mutable, not noise: name, witness, resume -- same treatment as a named target. External-blocked, no reachable witness -> `blockedBy: external` on the PRD row.
+**No unit tests, no exceptions.** A `deviation.synthetic-test-file` at VERIFY (new `*.test.*`/`*.spec.*`, a `test/`/`__tests__/` directory, or a testing-framework import found in the diff) blocks `transition` exactly like an unwitnessed mutable -- fold its assertions into `test.js` or replace them with a live `exec_js`/`browser` witness, then re-verify. This is manual legwork, not framework legwork: the adversarial corner-case sweep above is how every class gets exercised, by running the real thing, never by writing a test case that runs it later.
 
-## Discovery: additive vs reshaping
+## Residual-scan
 
-Real input is the highest-yield discovery surface; every observation -> PRD row this turn, never "future work" -- corner case, tool caveat, failure mode, adjacent file/import, deviation-bearing stderr, rule-violating prior commit, untriaged residual, missing browser-witness, all rows, list never closed. Sparse-cover discovery expands outward; narrowing inward to ease completion-claims is forbidden.
+`residual-scan` is dispatched BEFORE `transition to=CONSOLIDATE` -- the CONSOLIDATE entry gate refuses without its fired marker, and the denial names `residual-scan` as the next dispatch. It examines the open surface -- PRD pending, browser sessions, dirty tree, untracked artifacts, browser-witness coverage for session-modified client-side files -- non-empty = non-convergent -> expand PRD with the reachable in-spirit residual, re-execute. One-shot per stop window via marker. `reason: "browser sessions still open"` -> close each (`browser` `session close <id>`; `session list` enumerates); rescanning without closing is idle-mid-chain/polling deviation -- the denial names the next verb, dispatch it.
 
-Two kinds, two moves. **Additive** (sibling the cover missed): `prd-add`, stay in EXECUTE. **Reshaping** (scope/approach/dependency-shape change to an existing row or the plan): rewrites a DAG node already held -> re-cut the cover, `transition to=PLAN` (always legal from EXECUTE; only `to=COMPLETE` gates), re-scope via `prd-add` on the row's EXISTING id (upsert-rewrites, `{"rescoped": id}`, preserves handle/position/dependents -- never delete-and-re-add). The urge to write "I need to re-scope" IS the planning event -- dispatch `transition to=PLAN`, do not narrate it.
+Before accepting an empty scan, re-apply "every possible" to the closing PRD: every resolved row's skipped variant, every touched adjacent surface, every validation proving a row in practice not claim -- each hit is `prd-add` + re-execution. Clean scan on a short PRD for a long-horizon prompt is a false negative. Noticing-to-PRD holds unchanged here: anything observed while testing/reading diffs/inspecting closing state converts and re-executes same turn; stopping at "tests pass" while noticing named follow-on work is the canonical VERIFY drift.
 
-## Maturity-first
+**Every `git status --porcelain` entry triaged this turn -- "pre-existing" is not a stop excuse.** Dirty worktree: commit (real work), managed-gitignore-block it (transient runtime emission, e.g. `.gm/witness/`, `.gm/exec-spool/.*-stale.json`), or revert (junk). "Pre-existing" names a triage outcome, never the stop; `blockedBy: external` only when triage needs outside-session authority -- local-tree files always have local authority. `.gm/disciplines/` tracked; new memorize-fire `mem-*.json` committed.
 
-First emit = closure. Scaffold + IOU externalizes residual cost as state never revisited. Closure exceeding session reach -> Maximal Cover DAG (each node a closed transform), never a schedule.
+## Browser-witness coverage
 
-## Engineering invariants (shape of the code you land)
+Before COMPLETE, every session-touched client-side file needs a `browser.witness-marked` event whose `witnessed_hashes` match current sha. Check enumerates every changed `.html .js .jsx .ts .tsx .vue .svelte .mjs .css` (or HTML-imported path); mismatch/absence fires `deviation.browser-witness-hash-mismatch`/`deviation.browser-witness-missing`, residual-scan refuses, regress to EXECUTE and re-witness against the live page. The page is sole authority; disk-Read is necessary, insufficient.
 
-Data first -- correct structures/invariants make the code write itself; convoluted control flow signals a wrong data model, fix the model not the flow. Make invalid state unrepresentable -- parameters over hidden globals, the type/shape encodes the constraint so the bad combination cannot be constructed. Reason from physical constraints (latency, bandwidth, memory, coordination, worst node) before designing within them. Flat spine, single-focus units, call-site-legible. Misuse structurally impossible, never merely documented-against. Optimize worst case not average; every failure path explicit (full -> degraded -> safe-fail -> explicit-error), no silent catastrophic mode. Measure, never assume -- profile before optimizing, A/B on real input only in genuine dispute. Regression -> revert first, diagnose from known-good base second. Fail fast and loud over limping on bad state.
+## Trace to a human outcome
 
-**Process of elimination is the debugging paradigm on every surface; manual labour against real services is how you witness.** Thinking-in-code at its sharpest: each candidate cause is a hypothesis, tested by running it, never reasoned around. No guess-and-restart, no a/b-test, no shotgun variants: enumerate candidates as mutables, eliminate each by REAL-input witness -- `exec_js` on the real service, `codesearch`/`Read` on real source, `browser`'s `page.evaluate` on a live `window.*` global. Each elimination reveals the next mutable; iterate to single-cause-survives. One live-runtime read outweighs a hundred blind restarts.
+Before accepting the slice convergent, trace every shipped change to a human outcome -- capability gained, wait removed, failure no longer hit, a developer the interface stops fighting. Impact chain ending in technical elegance with no reachable human = aesthetics, revert candidate (DX, worst-device performance, the one person who can now build alone all count). Self-reported quality runs higher when the trajectory delivered one.
 
-Profile the real surface, never intuit. `exec_js`: `duration_ms` free, own timing + `process.memoryUsage()` on stdout, thrown-`stack` on stderr -- read both channels. Browser: `capture\n<script>` prefix auto-returns `{result, debug:{console, pageErrors, network, performance}}`, zero boilerplate. Slow-node-not-obvious: `exec_js opts.profile:true` / browser `profile\n<script>` prefix both return `{result, profile:{timeframe:{start_us,end_us,total_us,sample_count}, culprits:[{location,function,self_us,self_pct,hits}]}}` -- worst-N `file:line` self-time, identical shape both surfaces. Both also return `mem` (rss/heap/delta) and `wall_vs_cpu:{wall_us, offcpu_us}` -- sampler sees only on-CPU JS, large `offcpu_us` = IO/async-wait/GPU time invisible to it; tune via `opts.sampleIntervalUs`/`opts.profileTopN` (cli) or `interval=`/`topN=` (browser). Cheap non-profile path: `opts.mem:true` -> `{result, mem, wall_ms}` + structured `error:{name,message,stack}` on throw -- read `error.name` directly; default path (no `opts.mem`) byte-unchanged. CPU sampler is GPU-blind -- wall >> CPU self-time on render/canvas/WebGL -> browser `trace\n<script>` prefix opens CDP Tracing, returns `trace:{wall_us, gpu_us, viz_us, cc_us, by_category}`. Profile to LOCATE, then eliminate by live measurement. Verification is the same labour: run the real thing, witness the real output (`test.js` mock-free, live page, real service) -- never a unit/mock harness standing in for real-services witness. Apparent tooling failure is the same mechanical self-recovery-by-elimination, never a question for the user.
+## Witness over claim
 
-## No synthetic test files (hard rule)
+`witness_evidence` of the admitted form attaches to every mutable in the closing slice. Resolved-in-response without resolved-in-store = a dispatch not fired.
 
-Never create a unit-test file, spec file, `test/`/`__tests__/`/`spec/` directory, or reach for a testing framework (jest, mocha, vitest, pytest, unittest, junit, or any assertion/mocking library) to satisfy a PRD row -- doing so IS the deviation this rule exists to name, not a reasonable interpretation of "add coverage." A row asking for validation/edge-case handling is satisfied by: (a) the code path itself, exercised live via `exec_js`/`browser` with the output witnessed in the response, or (b) a real-services addition to the single root `test.js` (VERIFY's Integration witness, <=200 lines, mock-free). If `test.js` does not yet exist for a project needing one, `EMIT` creates that one file -- never a second test file beside it. Discovering an existing mock-heavy `test/` directory mid-EXECUTE is itself a PRD row: consolidate its real-service assertions into `test.js`, delete the rest, `prd-add` it now rather than adding to it.
+## Completion
 
-## Memorize
+Chain enters COMPLETE only when your `transition` returns COMPLETE phase; on-disk state moves only on `transition`. **Done is plugkit's pronouncement, not yours** -- gate-allowance is not done, only a dispatched `transition` returning COMPLETE is; a narrated PLAN->COMPLETE walk with the gate open or the verb un-dispatched is fabrication. "I'm finished" before the gate flips is narrating; cure = `phase-status`. Not-COMPLETE means a next transition exists; idle/"waiting for the user" mid-chain are deviations (closure authorized at request time). Between the four observations, between residual-scan and COMPLETE, between push and transition, re-dispatch `instruction` -- VERIFY is where premature COMPLETE happens.
 
-Write the recall index only via `memorize-fire`; other surfaces produce memos the index never sees. Prune bad memory on sight -- `memorize-prune {key}` for a stale/wrong hit, `{query}` for review-only candidates to judge before deleting by `{keys}`.
+**You close rs-learn's learning loop here -- you are the model in the loop, holding the one signal every core needs: how well this turn went.** Before COMPLETE, self-report turn quality 0.0-1.0 (1.0 = clean convergent walk, no deviations, pushed, gate-allowed; lower as deviations/rework accumulate). That number drives every core, none observable to it without you:
+
+- **Instant MicroLoRA adapter:** only >=2 enabled disciplines (default-only = correct no-op, skip). Init once/session `learn {verb:init_instant, body:{targets:[<enabled namespaces>]}}`, then `learn {verb:feedback, body:{embedding:<bge embedding of this turn's task>, payload:{quality:<0-1>}}}` -- high quality shifts the helpful namespace's logit up so recall promotes it.
+- **FastGRNN router:** `learn {verb:record_outcome, body:{target:"<your model id>", quality:<0-1>}}` so the next `route_hint` reflects learned outcomes.
+- **Deep EWC core** and **GAT attention relation weights:** same quality as `record_loss` / `nudge_relation`.
+
+rs-learn never calls a model; it emits the need, you supply the answer. Skipping the self-report leaves the cores untrained.
+
+**No summary, no prose-only turn here.** A summary, recap, announced-but-undispatched next move, or any tool-less message IS a stop -- VERIFY is where the temptation peaks. Until this surface returns phase=COMPLETE after `transition`, every turn ends in a verb (`phase-status`, `residual-scan`, the push verbs, `instruction`, `transition`). Catching yourself composing a summary IS the drift signal -> dispatch `phase-status` instead.
 
 ## Constraints
 
@@ -69,8 +86,4 @@ Gauge every design/code decision against `.gm/constraints.md` (create from bundl
 
 ## Dispatch
 
-Spool every exec. Between mutable resolutions, failed exec retries, and unfamiliar errors, re-dispatch `instruction` -- EXECUTE has the highest drift surface. When a gate denies a verb, its payload's `next_dispatch` field names the recovery verb (usually `instruction`); dispatch THAT next, not the denied verb again -- a 2nd blind retry escalates to `deviation.long-gap-retry-without-instruction`.
-
-- Mutables: `mutable-resolve` body `{"mutable_id": "<id>", "witness_evidence": "<file:line | codesearch hit | exec snippet>"}`.
-- PRD rows: `prd-resolve` body `{"id": "<id>", "witness_evidence": "<...>"}` (top-level `id`/`prd_id` beside `witness_evidence`; bare-id body works but loses the audit trail; never nest the whole envelope as a string). `deviation_kind: prd-resolve-unknown-id` means the id missed -- read the `hint` field and re-dispatch corrected, never blind.
-- `transition` when the slice is closed and every mutable is witnessed; `transition to=PLAN` on a new unknown or reshaping discovery.
+`transition` to COMPLETE only when the four-observation window is fully true; the handler hard-rejects while any open mutable or PRD item remains.
