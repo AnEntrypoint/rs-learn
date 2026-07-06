@@ -73,3 +73,5 @@ docs/data/
 # <<< gm managed
 .codeinsight/
 .gm/pw-sock-*/
+.gm/browser-profile-*/
+.gm/browser-state/

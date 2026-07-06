@@ -1,12 +1,10 @@
 links:
-  - label: pipeline
-    href: "#pipeline"
-  - label: loops
-    href: "#loops"
-  - label: layers
-    href: "#layers"
-  - label: debug
-    href: "#debug"
+  - label: dispatch
+    href: "#dispatch"
+  - label: graph
+    href: "#bitemporal"
+  - label: lora
+    href: "#lora"
   - label: ci
     href: "#ci"
   - label: github
