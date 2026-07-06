@@ -1,6 +1,8 @@
 ## [unreleased]
 
 ### Fixed
+- `site/content/{globals,pages}/*.yaml` described a standalone ACP-wrapping CLI binary (npx/cargo install, six native CI targets, a `127.0.0.1:7878` debug server) that never matched the actual crate. Rewrote to describe the real wasm32-wasip1 cdylib algorithm layer (dispatch verb table, host contract, bi-temporal graph model, LoRA math) per README.md, and the real CI shape (`wasm-check.yml` + `publish.yml`).
+- Removed `docs/`, an unreferenced legacy static site (hand-built design tokens, vendored webjsx/rippleui) duplicating `site/`'s stale content with a second, divergent design system. `site/` (built by `gh-pages.yml` via flatspace, consuming the `anentrypoint-design` SDK) is now the sole website.
 - `session_key`-keyed adapter/router/attention kv state had unsynchronized load-mutate-save races in `reset_adapter`, `record_outcome`, and `nudge_relation` -- only `feedback` had CAS-retry. Added `peek_router_version`/`peek_attention_version` plus matching retry loops so all four handlers share the same optimistic-concurrency guard.
 - Removed unreachable `EpisodeRow`/`NodeRow` dead code and their `NS_NODES` namespace const -- no dispatch verb ever constructed or queried them.
 

@@ -1,89 +1,44 @@
 # Next step
 
-Phase: VERIFY
-Updated: 1783310380217
+Phase: COMPLETE
+Updated: 1783311115831
 
 ---
 
-# VERIFY
+# UPDATE-DOCS
 
-YOU are the state machine. Plugkit does not validate in the background -- you read the four observations and decide whether to `transition`.
+YOU are the state machine. Plugkit is the synchronous library serving this prose; docs do not update themselves -- you dispatch every edit and every push.
 
-L3 trajectory; `transition` iff every observation is convergent.
+Docs reflect the current state of the system, not its history. Every rule in AGENTS.md is present-tense -- what must or must-not be the case in code now. Past-tense framing, `(FIXED)` markers, dated audit entries, and "we used to X, now Y" belong in `git log` and `CHANGELOG.md`, never AGENTS.md.
 
-```
-[worktree-clean] [remote-pushed] [prd-empty] [mutables-witnessed]
-```
+## AGENTS.md and CLAUDE.md
 
-All four true = convergence -> `transition`. Any false defers, holds, or regresses.
+Edit AGENTS.md/CLAUDE.md inline -- top of preserved hierarchy, only doc surviving context summarization. `memorize-fire` = parallel surface (`.gm/exec-spool/in/memorize-fire/<N>.txt`, raw text or `{text, namespace?}`) where `recall`/`auto_recall` retrieve the fact future turns. AGENTS.md = staging ground; store = recall surface. Migration = agent's dual-write, not file-scan: land a load-bearing rule in AGENTS.md -> fire same rule to store same session so it surfaces in `auto_recall`. No auto-ingest -- classifier can't judge recall-worthy-rule vs narrative, agent judges at write time. Never `namespace:"AGENTS.md"` (mislabeled); load-bearing rules -> default namespace. Multiple facts = multiple parallel requests, one message.
 
-## Push and worktree-clean
+**Migration is bidirectional; back-pressure = deflation -- every memorize run also drains AGENTS.md.** Inward-only flow bloats past budget. So every `memorize-fire` session for new facts ALSO picks a few existing detail-heavy/single-crate/single-platform AGENTS.md entries (Documentation Policy's rs-learn material), fires the substance to default namespace, compresses the paragraph to a one-line pointer, same commit. Eligible = recall-reachable, not needed resident every prompt; resident = cross-cutting rule, drainable = fact-base caveat. Top-level rules stay; recall-reachable drains. Witness both ways: fact lands in store AND byte-count drops. Few entries/run, never wholesale rewrite. Skipping the drain = the slow-bloat drift this policy prevents.
 
-`git_push` is the only admissible push surface, any repo, any cwd -- runs `[worktree-clean]` porcelain probe internally, refuses dirty. `git_finalize {message}` bundles add -> commit -> probe -> push. Sibling push: `git_push {repo:"<abs>", branch:"<branch>"}` (probes inside target tree). Raw `git` shell body gated `deviation.bash-git-bypass`; `cd <repo> && git push` bypasses the probe even clean, ccsniff flags every raw push. Raw-Bash-git fallback: `git status --porcelain` its own Bash tool-use event before push, never `&&`-chained -- ccsniff `--git-discipline` scans the last 20 Bash events, one chained event has no witness. Non-empty bytes = unstaged residual: stage-commit or revert first, a dirty-tree push advances an unwitnessed slice and breaks the next session.
+## README.md
 
-## CI
+Refresh to the surface a new reader actually encounters: remove every stale install step, version pin, and gone feature; add what you added this session if it changes the public surface.
 
-Verification is thinking run rather than reasoned: "is this correct?" is executed, not argued -- real test, real matrix, real page answer it. The push IS the validation dispatch. Local proof covers one platform; matrix covers all. Red = divergent observation holding the trajectory until cause-named and green re-pushed; toolchain skew converges, does not stop.
+## docs/index.html
 
-## Adversarial corner-case sweep (hard rule)
+Regenerate/hand-edit to the same surface. Site builds run from `site/`; the deployed `/` route renders from `site/content/pages/home.yaml` via flatspace. Route landing edits through `site/theme.mjs` (Hero) and the YAML, never `site/index.html` directly. `docs/styles.css` is generated from `site/input.css` -- append to the source, not the output.
 
-VERIFY is adversarial, never confirmatory: hunt every way EMIT's write breaks, via real `exec_js`/`browser` execution, never prose reasoning. Each class below gets its own exec_js/browser dispatch witnessing outcome (pass or found-and-fixed) before transitioning on; a reachable-but-unswept class is not an implicit pass:
+## CHANGELOG.md
 
-- **empty/overflow/reentry**: zero-length input, max-size/overflow input, same op mid-flight (reentrant call).
-- **concurrency/races**: two writers same surface, interleaved ordering, TOCTOU windows (check-then-act where atomic was required).
-- **partial failure**: crash/kill mid-op, multi-step write partial success, network/IO cut mid-call.
-- **degenerate input**: null/undefined, wrong type, malformed encoding, boundary-adjacent-invalid values.
-- **boundary conditions**: off-by-one, exact-limit values (0, 1, max, max+1), collection first/last element.
-- **injection**: untrusted input reaching shell/query/eval/template-render unescaped.
-- **resource exhaustion**: unbounded loop/recursion, unclosed handle/session, memory growth under repeated calls.
-- **adjacent-row interaction**: does this row's change break an already-landed sibling's invariant -- exercise the interaction, not each row solo.
+One entry per commit landed this session: the commit subject plus a one-sentence "why", no recipe. CHANGELOG carries the history AGENTS.md refuses.
 
-Each class exercised = exec_js/browser dispatch + witness (pass or fix-then-rewitness), same turn, before `transition`. A happy-path-only VERIFY has not verified.
+## Commit and Push
 
-## Integration witness
+Stage doc updates only -- never bundle them with code changes from earlier phases (committed at their own time). One commit, present-tense imperative subject. Push via the git verbs: `git_finalize {message}` bundles add -> commit -> porcelain-gate -> push in one dispatch, or `git_add` the doc paths then `git_commit` then `git_push`. The verbs gate on the porcelain probe internally and refuse a dirty tree (`deviation.push-dirty`); a raw `git` shell body is gated `deviation.bash-git-bypass`. If you ever fall back to raw Bash git, the porcelain probe is its own `Bash(git status --porcelain)` event before the push, never `&&`-chained -- a chained `add && commit && push` carries no separable witness, so ccsniff `--git-discipline` sees an unwitnessed push. A doc commit stages only paths matching AGENTS.md, CLAUDE.md, README.md, SKILLS.md, CHANGELOG.md, LICENSE*, docs/**, or site/**; any non-doc path means you bundled phases -- split it out before staging. The push triggers the docs pipeline and IS the validation dispatch.
 
-`test.js` at root, 200-line ceiling, real services only (mock-free) -- the single witness IS the test surface, proving a full real session end-to-end. Not one gate beside a conventional unit suite: a growing mock-heavy multi-file `test/` is the pattern gm replaces, never a coexisting exemption; the cap does not bless a parallel suite. More than the single real-services witness needs justifying, never default. Pass = integration witness; fail -> `transition` back to EXECUTE. `recursive` classifier = incomplete cover -- snake back, do not narrate past signal.
+## COMPLETE
 
-**No unit tests, no exceptions.** A `deviation.synthetic-test-file` at VERIFY (new `*.test.*`/`*.spec.*`, a `test/`/`__tests__/` directory, or a testing-framework import found in the diff) blocks `transition` exactly like an unwitnessed mutable -- fold its assertions into `test.js` or replace them with a live `exec_js`/`browser` witness, then re-verify. This is manual legwork, not framework legwork: the adversarial corner-case sweep above is how every class gets exercised, by running the real thing, never by writing a test case that runs it later.
+Terminal phase. After the push lands, dispatch `transition` to COMPLETE; plugkit records the chain concluded.
 
-## Residual-scan
-
-`residual-scan` is dispatched BEFORE `transition to=CONSOLIDATE` -- the CONSOLIDATE entry gate refuses without its fired marker, and the denial names `residual-scan` as the next dispatch. It examines the open surface -- PRD pending, browser sessions, dirty tree, untracked artifacts, browser-witness coverage for session-modified client-side files -- non-empty = non-convergent -> expand PRD with the reachable in-spirit residual, re-execute. One-shot per stop window via marker. `reason: "browser sessions still open"` -> close each (`browser` `session close <id>`; `session list` enumerates); rescanning without closing is idle-mid-chain/polling deviation -- the denial names the next verb, dispatch it.
-
-Before accepting an empty scan, re-apply "every possible" to the closing PRD: every resolved row's skipped variant, every touched adjacent surface, every validation proving a row in practice not claim -- each hit is `prd-add` + re-execution. Clean scan on a short PRD for a long-horizon prompt is a false negative. Noticing-to-PRD holds unchanged here: anything observed while testing/reading diffs/inspecting closing state converts and re-executes same turn; stopping at "tests pass" while noticing named follow-on work is the canonical VERIFY drift.
-
-**Every `git status --porcelain` entry triaged this turn -- "pre-existing" is not a stop excuse.** Dirty worktree: commit (real work), managed-gitignore-block it (transient runtime emission, e.g. `.gm/witness/`, `.gm/exec-spool/.*-stale.json`), or revert (junk). "Pre-existing" names a triage outcome, never the stop; `blockedBy: external` only when triage needs outside-session authority -- local-tree files always have local authority. `.gm/disciplines/` tracked; new memorize-fire `mem-*.json` committed.
-
-## Browser-witness coverage
-
-Before COMPLETE, every session-touched client-side file needs a `browser.witness-marked` event whose `witnessed_hashes` match current sha. Check enumerates every changed `.html .js .jsx .ts .tsx .vue .svelte .mjs .css` (or HTML-imported path); mismatch/absence fires `deviation.browser-witness-hash-mismatch`/`deviation.browser-witness-missing`, residual-scan refuses, regress to EXECUTE and re-witness against the live page. The page is sole authority; disk-Read is necessary, insufficient.
-
-## Trace to a human outcome
-
-Before accepting the slice convergent, trace every shipped change to a human outcome -- capability gained, wait removed, failure no longer hit, a developer the interface stops fighting. Impact chain ending in technical elegance with no reachable human = aesthetics, revert candidate (DX, worst-device performance, the one person who can now build alone all count). Self-reported quality runs higher when the trajectory delivered one.
-
-## Witness over claim
-
-`witness_evidence` of the admitted form attaches to every mutable in the closing slice. Resolved-in-response without resolved-in-store = a dispatch not fired.
-
-## Completion
-
-Chain enters COMPLETE only when your `transition` returns COMPLETE phase; on-disk state moves only on `transition`. **Done is plugkit's pronouncement, not yours** -- gate-allowance is not done, only a dispatched `transition` returning COMPLETE is; a narrated PLAN->COMPLETE walk with the gate open or the verb un-dispatched is fabrication. "I'm finished" before the gate flips is narrating; cure = `phase-status`. Not-COMPLETE means a next transition exists; idle/"waiting for the user" mid-chain are deviations (closure authorized at request time). Between the four observations, between residual-scan and COMPLETE, between push and transition, re-dispatch `instruction` -- VERIFY is where premature COMPLETE happens.
-
-**You close rs-learn's learning loop here -- you are the model in the loop, holding the one signal every core needs: how well this turn went.** Before COMPLETE, self-report turn quality 0.0-1.0 (1.0 = clean convergent walk, no deviations, pushed, gate-allowed; lower as deviations/rework accumulate). That number drives every core, none observable to it without you:
-
-- **Instant MicroLoRA adapter:** only >=2 enabled disciplines (default-only = correct no-op, skip). Init once/session `learn {verb:init_instant, body:{targets:[<enabled namespaces>]}}`, then `learn {verb:feedback, body:{embedding:<bge embedding of this turn's task>, payload:{quality:<0-1>}}}` -- high quality shifts the helpful namespace's logit up so recall promotes it.
-- **FastGRNN router:** `learn {verb:record_outcome, body:{target:"<your model id>", quality:<0-1>}}` so the next `route_hint` reflects learned outcomes.
-- **Deep EWC core** and **GAT attention relation weights:** same quality as `record_loss` / `nudge_relation`.
-
-rs-learn never calls a model; it emits the need, you supply the answer. Skipping the self-report leaves the cores untrained.
-
-**No summary, no prose-only turn here.** A summary, recap, announced-but-undispatched next move, or any tool-less message IS a stop -- VERIFY is where the temptation peaks. Until this surface returns phase=COMPLETE after `transition`, every turn ends in a verb (`phase-status`, `residual-scan`, the push verbs, `instruction`, `transition`). Catching yourself composing a summary IS the drift signal -> dispatch `phase-status` instead.
-
-## Constraints
-
-Gauge every design/code decision against `.gm/constraints.md` (create from bundled default if absent) -- the standing decision-arbiter, checked at every phase.
+**Once `phase=COMPLETE` and `prd_pending_count=0`, the chain is closed.** Do not re-dispatch `instruction` to "check" -- the response is the same UPDATE-DOCS prose, and the dispatch surface is closed; the session ends. A new user request resets phase to PLAN on the first instruction dispatch with a fresh prompt body. Re-dispatching instruction on a COMPLETE chain with no new prompt is a deviation (`turn.start`/`turn.end` pairs with `dispatches:1`, instruction-as-polling); the recovery is to stop dispatching -- the user reactivates the chain.
 
 ## Dispatch
 
-`transition` to COMPLETE only when the four-observation window is fully true; the handler hard-rejects while any open mutable or PRD item remains.
+`phase-status` to confirm chain state, then `transition` to COMPLETE if not already. After COMPLETE lands, stop.
