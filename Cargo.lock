@@ -34,7 +34,7 @@ dependencies = [
 
 [[package]]
 name = "rs-learn"
-version = "0.1.86"
+version = "0.1.87"
 dependencies = [
  "serde",
  "serde_json",
