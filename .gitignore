@@ -75,3 +75,5 @@ docs/data/
 .gm/pw-sock-*/
 .gm/browser-profile-*/
 .gm/browser-state/
+.gm/next-step.md
+.gm/residual-check-fired
