@@ -1,4 +1,6 @@
-# rs-learn
+# rs-learn (retired)
+
+**This crate is retired.** rs-plugkit no longer depends on it: memory is human-readable md files (`.gm/memories/`, `.gm/disciplines/<name>/memories/`) with a derived per-project vector index, and the memorize/recall/prune paths live in-tree at [AnEntrypoint/rs-plugkit](https://github.com/AnEntrypoint/rs-plugkit). This repo no longer triggers the release cascade.
 
 Continual-learning primitives for LLM agents, shipped as a small wasm cdylib that runs inside a host providing key-value storage and vector search via a handful of imports.
 
